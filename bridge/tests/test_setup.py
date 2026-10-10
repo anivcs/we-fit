@@ -24,6 +24,7 @@ def fail(message: str):
         ("wefit_bridge", "wefit-bridge (this repo)"),
         ("bleak", "bleak"),
         ("serial", "pyserial"),
+        ("websockets", "websockets"),
         ("pynput", "pynput"),
         ("platformio", "platformio"),
     ],

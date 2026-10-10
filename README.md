@@ -184,6 +184,22 @@ saying what to do.
 
 ## 6. Use it with a game
 
+- **The WeFit browser game (Three.js frontend).** The bridge reads the ESP32 over USB
+  and serves each gesture on a local WebSocket:
+
+  ```powershell
+  python -m wefit_bridge --transport usb --sink websocket
+  ```
+
+  Then open the game with `http://localhost:5173/?controller=ws://localhost:8765`. The
+  status pill reads `Controller: connected`, and a jump starts a run. Each gesture
+  arrives as one JSON message, `{"move": "JUMP", "key": "up", "t": 15180.5}`, with
+  `up`/`down`/`left`/`right` sent as `JUMP`/`DUCK`/`LEFT`/`RIGHT`.
+
+  Add `--sink console` as well to see the gestures in the terminal. Use `--ws-port` to
+  change the port, and `--ws-host 0.0.0.0` if the browser runs on another machine. To
+  try it without the board, use `--transport fake`.
+
 - **Any game that reads the keyboard.** This presses the real arrow keys; click the
   game window so it has focus:
 
@@ -238,7 +254,7 @@ Motion Controlled Subway Surfer
 
 Frontend URL options:
 - `?api=http://<backend-host>:8000/api/v1` if the backend isn't on the same host as the page.
-- `?controller=ws://<esp32-ip>:81` to connect the ESP32 over WebSocket. It may send plain moves (`JUMP`, `DUCK`, `LEFT`, `RIGHT`), JSON (`{"move": "JUMP"}`), or raw accelerometer samples in g (`{"ax": 0.1, "ay": 2.3, "az": 0.0}`, +y up, +x right).
+- `?controller=ws://localhost:8765` to take moves from the USB bridge (see "Use it with a game" above). Any WebSocket controller works if it follows the same message format. It may send plain moves (`JUMP`, `DUCK`, `LEFT`, `RIGHT`), JSON (`{"move": "JUMP"}`), or raw accelerometer samples in g (`{"ax": 0.1, "ay": 2.3, "az": 0.0}`, +y up, +x right).
 
 Keyboard fallback: ← → lanes, ↑ / Space jump, ↓ duck, P pause.
 

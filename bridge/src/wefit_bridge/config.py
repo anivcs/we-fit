@@ -18,6 +18,8 @@ class Config:
     device_address: str | None = None
     key_hold_ms: int = 120
     sinks: list[str] = field(default_factory=lambda: ["console"])
+    websocket_host: str = "127.0.0.1"
+    websocket_port: int = 8765
     gestures: GestureConfig = field(default_factory=GestureConfig)
 
 
@@ -31,6 +33,10 @@ def load_config(path: str | Path) -> Config:
     config.key_hold_ms = int(raw.get("key_hold_ms", config.key_hold_ms))
 
     config.usb_port = raw.get("usb", {}).get("port", config.usb_port)
+
+    ws = raw.get("websocket", {})
+    config.websocket_host = ws.get("host", config.websocket_host)
+    config.websocket_port = int(ws.get("port", config.websocket_port))
 
     ble = raw.get("ble", {})
     config.device_name = ble.get("name", config.device_name)

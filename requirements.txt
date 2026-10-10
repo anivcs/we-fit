@@ -5,6 +5,7 @@
 
 bleak>=3.0          # Bluetooth LE
 pyserial>=3.5       # USB serial
+websockets>=13      # websocket sink (serves moves to the browser game)
 pynput>=1.7         # keyboard sink (presses real arrow keys)
 pytest>=8           # checks: python check.py
 platformio>=6.1     # build and flash the ESP32 firmware

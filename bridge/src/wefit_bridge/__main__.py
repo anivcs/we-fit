@@ -1,4 +1,4 @@
-"""Standalone bridge: python -m wefit_bridge --transport usb|ble|fake [--sink console|keyboard]"""
+"""Standalone bridge: python -m wefit_bridge --transport usb|ble|fake [--sink console|keyboard|websocket]"""
 
 import argparse
 import asyncio
@@ -6,6 +6,8 @@ import logging
 
 from .config import TRANSPORTS, Config, load_config
 from .pipeline import build_pipeline, run
+from .sinks import SINKS
+from .sinks.websocket import WebSocketPortError
 from .transport import make_transport
 
 
@@ -47,9 +49,11 @@ def main() -> None:
     parser.add_argument(
         "--sink",
         action="append",
-        choices=["console", "keyboard"],
+        choices=SINKS,
         help="override the config; repeat for several",
     )
+    parser.add_argument("--ws-host", help="websocket sink address (default: 127.0.0.1)")
+    parser.add_argument("--ws-port", type=int, help="websocket sink port (default: 8765)")
     parser.add_argument("--scan", action="store_true", help="list visible controllers and exit")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -70,11 +74,17 @@ def main() -> None:
         config.usb_port = args.port
     if args.sink:
         config.sinks = args.sink
+    if args.ws_host:
+        config.websocket_host = args.ws_host
+    if args.ws_port is not None:
+        config.websocket_port = args.ws_port
 
     try:
         asyncio.run(run(make_transport(config), build_pipeline(config)))
     except KeyboardInterrupt:
         pass
+    except WebSocketPortError as e:
+        parser.exit(1, f"{e}\n")
 
 
 if __name__ == "__main__":
