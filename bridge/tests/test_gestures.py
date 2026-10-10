@@ -54,6 +54,60 @@ def test_cooldown_blocks_even_after_rest():
     assert detector.update((5.0, 0.0, 0.0), now=0.5) == "right"
 
 
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ((0.0, 0.0, 8.0), (5.0, 0.0, 0.0)),  # up then right
+        ((0.0, 0.0, 8.0), (-5.0, 0.0, 0.0)),  # up then left
+        ((5.0, 0.0, 0.0), (0.0, 0.0, 8.0)),  # right then up
+        ((-5.0, 0.0, 0.0), (0.0, 0.0, -5.0)),  # left then down
+    ],
+)
+def test_other_axis_is_not_delayed(first, second):
+    detector = GestureDetector()
+    assert detector.update(first, now=0.0) is not None
+    # No cooldown and no rest needed for a gesture on the other axis
+    assert detector.update(second, now=0.01) is not None
+
+
+def test_same_direction_still_waits_for_cooldown_and_rest():
+    detector = GestureDetector()
+    assert detector.update((0.0, 0.0, 8.0), now=0.0) == "up"
+    assert detector.update((0.0, 0.0, 8.0), now=0.2) is None
+    assert detector.update(REST, now=0.3) is None
+    assert detector.update(REST, now=0.5) is None
+    assert detector.update((0.0, 0.0, 8.0), now=0.6) == "up"
+
+
+def test_rebound_on_the_same_axis_is_still_blocked_after_a_gesture_on_the_other():
+    detector = GestureDetector()
+    assert detector.update((0.0, 0.0, 8.0), now=0.0) == "up"
+    assert detector.update((5.0, 0.0, 0.0), now=0.02) == "right"
+    # The z rebound from stopping the "up" has not rested yet
+    assert detector.update((0.0, 0.0, -8.0), now=0.05) is None
+
+
+def test_axis_stays_disarmed_while_it_keeps_moving():
+    detector = GestureDetector()
+    assert detector.update((0.0, 0.0, 8.0), now=0.0) == "up"
+    # Z keeps moving while X sits still; X being at rest must not re-arm z
+    for t in (0.1, 0.2, 0.3):
+        assert detector.update((0.0, 0.0, 3.0), now=t) is None
+    assert detector.update((0.0, 0.0, -8.0), now=0.4) is None
+
+
+def test_jump_then_lane_change_in_quick_succession():
+    detector = GestureDetector()
+    samples = [
+        (0.00, (0.0, 0.0, 8.0)),  # jump
+        (0.03, (0.0, 0.0, 0.0)),
+        (0.06, (5.0, 0.0, 0.0)),  # lane change while still in the air
+        (0.09, (0.0, 0.0, 0.0)),
+    ]
+    got = [detector.update(accel, now=t) for t, accel in samples]
+    assert got == ["up", None, "right", None]
+
+
 def test_reset_rearms_immediately():
     detector = GestureDetector()
     assert detector.update((5.0, 0.0, 0.0), now=0.0) == "right"

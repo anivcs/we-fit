@@ -2,9 +2,17 @@
 
 Port of the logic in firstiterationsubwaysurfers.ino. Axes are the sensor frame:
 +X right, -X left, +Z up, -Z down.
+
+The delays are independent per direction, so a jump and a lane change can be chained
+without waiting:
+  - cooldown applies per direction (a second "up" waits, a "right" right after "up" does not)
+  - the rest gate applies per axis (see GestureDetector), so "up" never blocks "left"/"right"
 """
 
 from dataclasses import dataclass
+
+# Left/right move along X, up/down along Z
+AXIS = {"up": "z", "down": "z", "left": "x", "right": "x"}
 
 
 @dataclass(slots=True)
@@ -12,9 +20,9 @@ class GestureConfig:
     side_threshold: float = 4.0  # m/s^2
     up_threshold: float = 7.0
     down_threshold: float = 4.0
-    rest_threshold: float = 1.0  # all axes below this counts as at rest
-    rest_s: float = 0.15  # stillness required before the next gesture
-    cooldown_s: float = 0.5
+    rest_threshold: float = 1.0  # an axis below this counts as at rest
+    rest_s: float = 0.15  # stillness an axis needs before it can fire again
+    cooldown_s: float = 0.5  # minimum time between two gestures in the same direction
 
 
 class GestureDetector:
@@ -23,9 +31,9 @@ class GestureDetector:
         self.reset()
 
     def reset(self) -> None:
-        self._last = float("-inf")
-        self._ready = True
-        self._rest_start: float | None = None
+        self._last: dict[str, float] = {}
+        self._ready = {"x": True, "z": True}
+        self._rest_start: dict[str, float | None] = {"x": None, "z": None}
 
     def update(self, accel: tuple[float, float, float], now: float) -> str | None:
         """Return "up", "down", "left", "right", or None. One gesture at most."""
@@ -33,18 +41,16 @@ class GestureDetector:
         x, y, z = accel
         ax, ay, az = abs(x), abs(y), abs(z)
 
-        # Re-arm only after the sensor has been still, so the opposite-direction
-        # spike at the end of a motion is not read as a second gesture
-        if ax < cfg.rest_threshold and ay < cfg.rest_threshold and az < cfg.rest_threshold:
-            if self._rest_start is None:
-                self._rest_start = now
-            if now - self._rest_start >= cfg.rest_s:
-                self._ready = True
-        else:
-            self._rest_start = None
-
-        if not self._ready or now - self._last < cfg.cooldown_s:
-            return None
+        # An axis re-arms only after it has been still, so the opposite-direction spike
+        # as a motion stops is not read as a second gesture. The other axis is unaffected.
+        for axis, magnitude in (("x", ax), ("z", az)):
+            if magnitude < cfg.rest_threshold:
+                if self._rest_start[axis] is None:
+                    self._rest_start[axis] = now
+                if now - self._rest_start[axis] >= cfg.rest_s:
+                    self._ready[axis] = True
+            else:
+                self._rest_start[axis] = None
 
         gesture = None
         if z > cfg.up_threshold and az > ax and az > ay:
@@ -56,7 +62,12 @@ class GestureDetector:
         elif x < -cfg.side_threshold and ax > ay and ax > az:
             gesture = "left"
 
-        if gesture is not None:
-            self._last = now
-            self._ready = False
+        if gesture is None:
+            return None
+        axis = AXIS[gesture]
+        if not self._ready[axis] or now - self._last.get(gesture, float("-inf")) < cfg.cooldown_s:
+            return None
+
+        self._last[gesture] = now
+        self._ready[axis] = False
         return gesture
