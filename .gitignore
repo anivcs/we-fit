@@ -1,6 +1,2 @@
-/.venv
-.pio/
-__pycache__/
-*.egg-info/
-.pytest_cache/
-bridge/config.toml
+# Created by venv; see https://docs.python.org/3/library/venv.html
+*
