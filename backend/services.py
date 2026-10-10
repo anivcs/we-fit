@@ -29,6 +29,9 @@ async def get_or_create_user(
             updated_at=now,
         )
         db.add(user)
+        # Models have no relationship(), so flush now to guarantee the user row exists
+        # before any rows with a foreign key to it (enforced by Postgres, not SQLite).
+        await db.flush()
     elif username:
         user.username = username
     return user

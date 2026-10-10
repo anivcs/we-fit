@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
 
-# Pydantic Models for payload
+# Database Models
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
