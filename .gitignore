@@ -1,0 +1,7 @@
+backend/__pycache__
+backend/.DS_Store
+__pycache__/
+.pytest_cache/
+*.db
+
+.DS_Store
