@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: wefit-bridge
+Version: 0.1.0
+Summary: Turns an ESP32 IMU controller (USB or BLE) into arrow-key inputs for a game
+Requires-Python: >=3.11
+Requires-Dist: bleak>=3.0
+Requires-Dist: pyserial>=3.5
+Provides-Extra: keyboard
+Requires-Dist: pynput>=1.7; extra == "keyboard"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"

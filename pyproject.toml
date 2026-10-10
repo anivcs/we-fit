@@ -7,14 +7,28 @@ requires-python = ">=3.13"
 dependencies = [
     "aiosqlite>=0.22.1",
     "asyncpg>=0.32.0",
+    "bleak>=3.0",
     "fastapi>=0.143.0",
+    "platformio>=6.1",
+    "pynput>=1.7",
+    "pyserial>=3.5",
+    "pytest>=8",
     "sqlalchemy[asyncio]>=2.0",
     "uvicorn>=0.54.0",
+    "wefit-bridge",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
 testpaths = ["backend/tests"]
+
+[tool.uv.workspace]
+members = [
+    "bridge",
+]
+
+[tool.uv.sources]
+wefit-bridge = { workspace = true }
 
 [dependency-groups]
 dev = [
