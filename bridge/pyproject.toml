@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wefit-bridge"
+version = "0.1.0"
+description = "Turns an ESP32 IMU controller (USB or BLE) into arrow-key inputs for a game"
+requires-python = ">=3.11"
+dependencies = ["bleak>=3.0", "pyserial>=3.5"]
+
+[project.optional-dependencies]
+keyboard = ["pynput>=1.7"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+wefit-bridge = "wefit_bridge.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "usb: needs the ESP32 plugged in over USB",
+    "bluetooth: needs Bluetooth on and the ESP32 powered",
+]

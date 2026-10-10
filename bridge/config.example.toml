@@ -1,0 +1,21 @@
+# Copy to bridge/config.toml (gitignored) and edit.
+# Use it with: python -m wefit_bridge --config bridge/config.toml
+
+transport = "usb"      # "usb", "ble", or "fake" (scripted gestures, no hardware)
+sinks = ["console"]    # "console" prints JSON lines; "keyboard" presses real arrow keys
+key_hold_ms = 120      # how long a key stays down after a gesture
+
+[usb]
+# port = "COM5"                   # optional; auto-detected when omitted
+
+[ble]
+name = "WeFit"
+# address = "AA:BB:CC:DD:EE:FF"   # optional; find it with: python -m wefit_bridge --scan
+
+[gestures]             # m/s^2, from firstiterationsubwaysurfers.ino
+side_threshold = 4.0
+up_threshold = 7.0
+down_threshold = 4.0
+rest_threshold = 1.0   # all axes below this counts as "at rest"
+rest_ms = 150          # must rest this long before the next gesture
+cooldown_ms = 500

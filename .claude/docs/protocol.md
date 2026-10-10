@@ -1,75 +1,76 @@
-# Wire protocol v1 — ESP32 <-> bridge
+# Wire protocol v1 — ESP32 -> bridge (BLE and USB)
 
-Source of truth. `firmware/lib/protocol/protocol.h` and
+Source of truth. `firmware/include/protocol.h` and
 `bridge/src/wefit_bridge/protocol.py` must match this file. Any layout change bumps
-`version`; the bridge drops packets with an unknown version.
+`PROTOCOL_VERSION`; the bridge refuses to use a controller reporting another version.
 
-- Transport: UDP, bridge listens on port **4210**.
-- Byte order: little-endian. Structs are packed (`__attribute__((packed))` on the
-  ESP32, `<` prefix in Python `struct`).
-- One message per datagram. No fragmentation, no retransmission.
+The link carries sensor data only. Gestures, key state and reset live in the bridge.
 
-## Common header (10 bytes)
+## GATT layout
+
+| Item | Value |
+| --- | --- |
+| Advertised name | `WeFit` |
+| Service | `7e3f0001-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
+| Sample characteristic (notify) | `7e3f0002-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
+| Info characteristic (read) | `7e3f0003-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
+
+No pairing, bonding or encryption. All multi-byte fields are little-endian; structs
+are packed.
+
+## Sample (20 bytes, notified at 50 Hz while a host is connected)
 
 | Offset | Size | Type | Field | Notes |
 | --- | --- | --- | --- | --- |
-| 0 | 2 | char[2] | magic | ASCII `WF` |
-| 2 | 1 | u8 | version | `1` |
-| 3 | 1 | u8 | msg_type | see below |
-| 4 | 6 | u8[6] | device_id | ESP32 station MAC |
+| 0 | 2 | u16 | seq | increments per sample, wraps |
+| 2 | 2 | u16 | t_ms | device `millis()` truncated, wraps every ~65 s |
+| 4 | 6 | i16[3] | accel | linear acceleration x, y, z; value = raw / 100 m/s² |
+| 10 | 8 | i16[4] | quat | orientation w, x, y, z; value = raw / 16384 |
+| 18 | 1 | u8 | calib | BNO055 calibration: sys<<6, gyro<<4, accel<<2, mag |
+| 19 | 1 | u8 | flags | reserved, 0 |
 
-Python: `HEADER = struct.Struct("<2sBB6s")`
+Python: `struct.Struct("<HH3h4hBB")`
 
-| msg_type | Name | Direction | Total size |
-| --- | --- | --- | --- |
-| 1 | HELLO | device -> broadcast | 14 |
-| 2 | ACK | bridge -> device | 10 |
-| 3 | SAMPLE | device -> bridge | 60 |
+The scale factors are the BNO055's native units, so nothing is lost in transit.
+Acceleration has gravity removed and is expressed in the sensor frame.
 
-## HELLO (14 bytes)
-
-Sent to the subnet broadcast address once per second while the device has no bridge.
+## Info (5 bytes, read once after connecting)
 
 | Offset | Size | Type | Field |
 | --- | --- | --- | --- |
-| 10 | 2 | u16 | fw_version |
-| 12 | 2 | u16 | sample_rate_hz |
+| 0 | 1 | u8 | protocol_version (`1`) |
+| 1 | 2 | u16 | fw_version |
+| 3 | 2 | u16 | sample_rate_hz |
 
-Python: `struct.Struct("<2sBB6sHH")`
+Python: `struct.Struct("<BHH")`
 
-## ACK (10 bytes)
+## USB serial (115200 baud, 8N1)
 
-Header only; `device_id` echoes the device being addressed. Sent in reply to `HELLO`
-and then once per second as a heartbeat. The device takes the bridge address from the
-datagram source, and returns to `HELLO` after 3 s without an `ACK`.
+The firmware prints every sample as one text line on its USB serial port, whether or
+not a BLE host is connected (`SERIAL_STREAM` in `firmware/include/config.h`):
 
-## SAMPLE (60 bytes)
+```
+S,<seq>,<t_ms>,<ax>,<ay>,<az>,<qw>,<qx>,<qy>,<qz>,<calib>
+```
 
-| Offset | Size | Type | Field | Units / notes |
-| --- | --- | --- | --- | --- |
-| 10 | 4 | u32 | seq | increments per sample, wraps |
-| 14 | 4 | u32 | t_ms | device `millis()` at sample time |
-| 18 | 16 | f32[4] | quat | w, x, y, z — unit quaternion |
-| 34 | 12 | f32[3] | lin_accel | x, y, z in m/s², gravity removed |
-| 46 | 12 | f32[3] | gyro | x, y, z in rad/s |
-| 58 | 1 | u8 | calib | BNO055 calibration: sys<<6, gyro<<4, accel<<2, mag |
-| 59 | 1 | u8 | flags | bit 0 = button pressed (reserved, 0 for now) |
+- Fields are the same raw integers as the BLE sample, in the same order and scale.
+  `flags` is omitted.
+- Lines not starting with `S,` are firmware log messages; the bridge ignores them.
+  A log line can occasionally interleave with a sample line; the damaged line fails
+  to parse and is dropped.
+- There is no version field on this path. A layout change shows up as lines that
+  fail to parse.
+- Opening the port toggles DTR/RTS and resets most ESP32 dev boards. Expect about
+  3-5 s before the first sample.
 
-Python: `struct.Struct("<2sBB6sII10fBB")` — size 60.
-
-## Scope note
-
-This protocol carries sensor data only. Gesture detection, arrow-key state, and drift
-reset all live in the bridge, so none of them changed the wire format. Version stays
-`1`. Discovery uses broadcast, or is skipped when the firmware has a configured
-`BRIDGE_HOST`; in that case the device sends `HELLO` unicast to that address.
+Python: `parse_sample_line()` in `protocol.py`.
 
 ## Rules
 
-- Bridge ignores datagrams whose length does not match the msg_type, or whose magic
-  or version is wrong.
-- Bridge identifies a controller by `device_id` only. Source IP and port can change.
-- `seq` going backwards by a small amount means a reordered packet: drop it.
-  `seq` dropping to near zero means the device rebooted: reset that controller's state.
-- Default sample rate is 50 Hz (matches the prototype loop). The BNO055 fusion output
-  tops out at 100 Hz.
+- 20 bytes is the largest payload that fits the default ATT MTU of 23. Keep the
+  sample at or under that unless MTU negotiation is added on both sides.
+- The bridge drops any notification that is not exactly 20 bytes.
+- The bridge timestamps samples on arrival with its own monotonic clock. `seq` and
+  `t_ms` are for diagnostics (loss, jitter) and are not used by gesture detection.
+- The firmware sends no BLE notifications when no host is connected and restarts
+  advertising on disconnect. The bridge rescans and reconnects on its own.

@@ -1,187 +1,165 @@
-# Architecture — controller pipeline
+# Architecture — input pipeline
 
 ## Data flow
 
 ```
- ESP32 + BNO055  (x N, identical firmware)
-   | sample IMU at 50 Hz
-   | UDP datagram, 60 bytes, unicast to bridge :4210
+ ESP32 + BNO055                         firmware/
+   | read linear accel + quaternion at 50 Hz
+   | USB serial text line  AND  BLE notification (20 bytes)
    v
- Python bridge (one process on the game host, asyncio)
-   transport  ->  registry  ->  gesture detector  ->  publisher
-   (decode)      (device ->     (per controller)      (pluggable)
-                  player slot)
-   |
+ transport   usb (pyserial) | ble (bleak) | fake
+   |                                    bridge/src/wefit_bridge/transport/
+   | Sample
    v
- Game server  — BLACK BOX, not ours. Interface unknown.
+ gestures    thresholds + cooldown      gestures.py
+   | "up" | "down" | "left" | "right"
+   v
+ keys        one key at a time,         keys.py
+   |         auto-release
+   | KeyEvent(key, pressed, t)
+   v
+ sinks  ──>  console  (JSON lines)      sinks/
+        ──>  keyboard (real OS arrow keys)
+        ──>  Controller.poll() / .state()   client.py, for a Python game script
 ```
 
-The bridge runs on the same machine as the game (the "Local HDMI Display Device" in
-the backend branch's architecture diagram) or anywhere on the same LAN.
+Everything runs on the machine that runs the game. There is no network and no server.
 
-## What the other team has said so far
+## Division of work: firmware vs Python
 
-From `origin/infra/backend` (not merged into this branch):
+| | Firmware (C++) | Bridge (Python) |
+| --- | --- | --- |
+| Talks to the BNO055 | yes | no |
+| Sensor fusion, gravity removal | BNO055 chip does it | no |
+| Decides what a gesture is | **no** | **yes** |
+| Thresholds, cooldown | none | `GestureConfig`, set in TOML |
+| Arrow-key rules | none | `KeyState` |
 
-- Diagram shows controller → display device over "UDP / WebSockets - Local Network".
-- Planned REST endpoint `POST game/sync/` with payload `session id, movement type`.
-  This suggests the game wants **discrete movement events**, not raw IMU streams.
-  Our arrow-key contract is compatible: `movement type` maps to `up/down/left/right`.
-- Their diagram names an MPU6050. Our hardware is a **BNO055**. Unresolved mismatch;
-  it only matters to us (the BNO055 does fusion on-chip, the MPU6050 does not).
+The prototype `.ino` did detection on the ESP32 and printed text to USB serial. That
+logic now lives in `gestures.py`; the firmware kept only the sensor setup. The
+alternative (detect on the ESP32, send one byte per gesture) was rejected because
+every threshold change would need a reflash, and `down` is not tuned yet.
 
-None of this is a contract. Keep the publisher swappable.
-
-## Repo layout (planned)
+## Repo layout
 
 ```
 we-fit/
-├── .claude/                      project context (this directory)
-├── firmware/                     PlatformIO project
-│   ├── platformio.ini            env:esp32dev, framework=arduino, monitor_speed=115200
+├── .claude/                      project context
+├── firmware/                     PlatformIO project (Arduino framework, esp32dev)
+│   ├── platformio.ini            board, libs (Adafruit BNO055), monitor speed
 │   ├── include/
-│   │   ├── config.h              pins, sample rate, UDP port, timeouts
-│   │   └── secrets.h.example     WIFI_SSID / WIFI_PASS template (real file gitignored)
-│   ├── src/
-│   │   └── main.cpp              setup + non-blocking loop, wires the libs together
-│   ├── lib/
-│   │   ├── imu/                  BNO055 probe (0x28/0x29), init, read into ImuReading
-│   │   ├── net/                  Wi-Fi connect/reconnect, discovery, UDP send
-│   │   └── protocol/             protocol.h — packed structs, mirrors docs/protocol.md
-│   └── test/                     native unit tests for packet packing (optional)
+│   │   ├── config.h              pins, I2C clock, sample rate, firmware version
+│   │   └── protocol.h            BLE UUIDs, packed structs, scale factors
+│   └── src/main.cpp              BNO055 init, BLE GATT server, 50 Hz notify loop
 ├── bridge/
-│   ├── pyproject.toml            requires-python >=3.11, no runtime deps in core
-│   ├── config.example.toml       listen port, player map, gesture thresholds, publisher
+│   ├── pyproject.toml            deps: bleak; extras: keyboard (pynput), dev (pytest)
+│   ├── config.example.toml       transport, sinks, key hold, gesture thresholds
 │   ├── src/wefit_bridge/
-│   │   ├── __main__.py           CLI entry point
-│   │   ├── config.py             tomllib loader -> dataclasses
-│   │   ├── protocol.py           struct formats, decode/encode, mirrors protocol.h
-│   │   ├── transport.py          asyncio DatagramProtocol, discovery replies, heartbeats
-│   │   ├── registry.py           device_id -> ControllerState, player slots, timeouts, loss stats
-│   │   ├── gestures.py           per-controller detector -> up/down/left/right (thresholds + cooldown)
-│   │   ├── keys.py               arrow-key state machine: one key at a time, auto-release, reset
-│   │   ├── control.py            reset command channel (UDP 4211, JSON)
-│   │   ├── events.py             outbound models: KeyEvent, ControllerStatus, ImuSample (debug)
-│   │   └── publishers/
-│   │       ├── base.py           Publisher protocol: async publish(event), start(), close()
-│   │       ├── console.py        prints JSON lines — default until the game API is known
-│   │       └── ...               udp_json / websocket / http added when needed
-│   └── tests/                    protocol round-trip, registry, gestures on recorded data
-├── tools/
-│   └── fake_controller.py        emits valid packets for N fake devices
-└── legacy/
-    └── firstiterationsubwaysurfers/   original Arduino IDE sketch
+│   │   ├── __init__.py           exports Controller, Config, load_config, KeyEvent, KEYS
+│   │   ├── __main__.py           CLI: python -m wefit_bridge
+│   │   ├── config.py             Config dataclass + TOML loader
+│   │   ├── protocol.py           UUIDs, struct formats, Sample, decode/encode
+│   │   ├── events.py             KeyEvent, KEYS
+│   │   ├── gestures.py           GestureDetector: accel -> up/down/left/right
+│   │   ├── keys.py               KeyState: one key at a time, auto-release
+│   │   ├── pipeline.py           Pipeline (sync core) + run() (asyncio driver)
+│   │   ├── client.py             Controller: blocking facade on a background thread
+│   │   ├── transport/
+│   │   │   ├── __init__.py       make_transport(config)
+│   │   │   ├── usb.py            find the ESP32's serial port, read sample lines, reopen on loss
+│   │   │   ├── ble.py            scan, connect, version check, notify, reconnect
+│   │   │   └── fake.py           scripted gestures, no hardware
+│   │   └── sinks/
+│   │       ├── __init__.py       Sink protocol, make_sink(name)
+│   │       ├── console.py        JSON lines to stdout
+│   │       └── keyboard.py       presses real arrow keys via pynput
+│   └── tests/
+│       ├── test_protocol.py, test_gestures.py, test_keys.py, test_pipeline.py   logic
+│       └── test_setup.py         sanity checks: packages, USB, Bluetooth
+├── examples/
+│   └── game_stub.py              minimal game loop using Controller
+├── check.py                      one command for all checks (or logic | usb | bluetooth)
+├── requirements.txt              top-level deps + editable install of bridge/
+├── README.md                     setup instructions for another machine
+└── firstiterationsubwaysurfers/  original Arduino IDE prototype, reference only
 ```
 
-## Component responsibilities
+## How the game gets input
 
-### Firmware
+Two options; both are implemented. The game team picks one.
 
-- Probe and initialise the BNO055 exactly as the prototype does.
-- Join Wi-Fi; reconnect in the background if it drops.
-- Discover the bridge: broadcast `HELLO` once per second until an `ACK` arrives,
-  then unicast `SAMPLE` packets to the ACK's source address.
-- Fall back to discovery if no `ACK` heartbeat is seen for 3 s.
-- Sample on a fixed schedule using `millis()`, not `delay()`. Never block on the network.
-- Keep serial output for debug only (boot banner, state changes, calibration status).
-- Device id is the station MAC. No per-unit configuration.
+1. **Keyboard sink.** Run `python -m wefit_bridge --sink keyboard` next to the game.
+   The bridge presses the real arrow keys, so any game that already reads the keyboard
+   works with no code changes, including a browser game (the backend branch's diagram
+   shows an HTML + Three.js frontend). The game window must have focus. There is no
+   reset hook in this mode.
+2. **In-process.** A Python game script imports the bridge:
 
-### Bridge
+   ```python
+   from wefit_bridge import Controller
 
-- **transport** — one UDP socket. Validates magic + version + length, drops anything
-  else. Answers `HELLO` with `ACK`, and sends a 1 Hz `ACK` heartbeat to each live device.
-- **registry** — owns per-controller state keyed by device id: player slot, address,
-  last seen, last sequence number, packet-loss counter. Assigns player slots from the
-  config map first, then first-come for unknown devices. Marks a controller
-  disconnected after 2 s of silence and frees or holds its slot (config choice).
-- **gestures** — one detector instance per controller, so cooldowns and filters never
-  leak between players. Starts as a port of the prototype's logic (up/left/right) plus
-  `down` as the mirror of `up`. Orientation-based gestures can be added later using
-  the quaternion.
-- **keys** — turns detected gestures into boolean key press/release events, enforcing
-  one key at a time and the auto-release timer.
-- **control** — accepts `reset` and applies it to the registry, detectors and keys.
-- **publishers** — receive key and status events tagged with player number. The only
-  module that knows anything about the game server.
-
-## Multi-controller concerns
-
-| Concern | Approach |
-| --- | --- |
-| Telling controllers apart | MAC in every packet; never rely on source IP/port |
-| Player numbering | `device_id -> player` map in `config.toml`; join order as fallback |
-| Stable numbering across reboots | Use the config map; MAC survives reboot, DHCP lease may not |
-| Packet loss / reorder | `seq` per device; drop stale packets, count gaps, never retransmit |
-| One controller flooding | Per-device state and bounded queues; a slow publisher drops raw samples, never key events |
-| Stuck keys | Auto-release timer, plus forced release on disconnect and on reset |
-| Clock differences | Device `t_ms` is used only for per-device deltas; bridge stamps arrival time |
-| Disconnects | Timeout in registry -> `ControllerStatus` event to the publisher |
-
-Bandwidth is not a concern: 4 controllers x 50 Hz x 60 bytes is about 12 kB/s.
+   with Controller() as controller:
+       controller.reset()                 # start of each round
+       for event in controller.poll():    # each frame; never blocks
+           ...                            # event.key, event.pressed
+       controller.state()                 # {"up": False, "down": False, "left": True, "right": False}
+   ```
 
 ## Output contract: arrow keys
 
-The game-facing interface behaves like a keyboard with four arrow keys.
+- Keys: exactly `up`, `down`, `left`, `right`. Each is boolean.
+- **One key at a time.** The detector picks the dominant axis, so one motion cannot
+  produce two gestures. If a gesture fires while a key is down, the bridge emits the
+  release first, then the new press.
+- A gesture is a **tap**: press, then automatic release after `key_hold_ms` (120 ms).
+- After a gesture the detector re-arms only when all axes have stayed under
+  `rest_threshold` (1.0 m/s²) for `rest_ms` (150 ms), and at least `cooldown_ms`
+  (500 ms) has passed. The rest gate is what rejects the opposite-direction spike
+  when a motion stops (an `up` swing ends with a −Z jolt that would otherwise read
+  as `down`). This logic and its numbers come from the teammates' sketch.
+- A lost BLE link cannot leave a key stuck: the release timer runs independently of
+  incoming samples, and shutdown releases any held key.
 
-- Keys: exactly `up`, `down`, `left`, `right`. Each is boolean: pressed or released.
-- **One key at a time per controller.** No diagonals, no chords. If a new gesture
-  fires while another key is down, the bridge emits the release first, then the new
-  press (latest wins). The detector also picks one dominant axis, so two gestures
-  cannot fire from one motion.
-- Subway Surfers moves are discrete taps, so a detected gesture is a **press followed
-  by an automatic release** after `key_hold_ms` (default 120 ms, configurable). The
-  game never has to track held keys.
-- The 1000 ms cooldown from the prototype stays as a per-controller default; tune it
-  per gesture once on hardware.
-- Assumption to confirm: the one-at-a-time rule applies per controller, so two players
-  can each have a key down at the same time.
-
-Events (proposal to the game team, not agreed):
+Event shape from the console sink:
 
 ```json
-{"type": "key", "player": 1, "key": "left", "pressed": true,  "t": 1760000000.123}
-{"type": "key", "player": 1, "key": "left", "pressed": false, "t": 1760000000.243}
-{"type": "status", "player": 1, "device": "a4cf12de01bc", "state": "connected"}
+{"type": "key", "key": "left", "pressed": true,  "t": 15180.5}
+{"type": "key", "key": "left", "pressed": false, "t": 15180.62}
 ```
 
-A state snapshot is also available for polling consumers:
-`{"player": 1, "up": false, "down": false, "left": true, "right": false}`.
-At most one field is true.
-
-Raw samples (quaternion, linear acceleration, gyro) are an optional debug stream,
-off by default, not part of the game contract.
-
-When a controller disconnects, the bridge releases any held key before emitting
-`status: disconnected`, so a dropped controller can never leave a key stuck down.
+`t` is the host's monotonic clock in seconds, useful only for differences.
 
 ## Drift and per-round reset
 
 - The BNO055 runs in `IMUPLUS` (no magnetometer), so heading drifts over time.
-- The game resets this each round. The bridge provides the hook:
-  `reset(player: int | None)`. It captures the current quaternion as the new reference
-  orientation, clears filters and cooldowns, and releases any held key. `None` means
-  all controllers.
-- Gestures use sensor-frame linear acceleration with gravity removed by the BNO055,
-  so heading drift does not affect `up/down/left/right` detection. Reset matters for
-  orientation-derived values and for starting each round from a clean state.
-- Players must hold or mount the controller in the same orientation every round;
-  axes are fixed to the sensor frame.
-- How the game triggers `reset` is open. Proposed: a small control channel on the
-  bridge (UDP port 4211, JSON `{"cmd": "reset", "player": 1}`), or a method call if
-  the publisher ends up in-process with the game. No firmware or wire-protocol change
-  is needed for it.
+- The game resets each round by calling `Controller.reset()`. It releases any held
+  key, clears the cooldown, and stores the current quaternion as `reference_quat`.
+- Gestures use sensor-frame linear acceleration, so drift does not affect them.
+  `reference_quat` is captured for future orientation-based gestures; nothing reads it yet.
+- The player must hold the controller the same way each round, because the axes are
+  fixed to the sensor.
 
-## Network: phone hotspot
+## USB notes
 
-- The bridge host and every ESP32 join one phone's mobile-data Wi-Fi hotspot.
-- The ESP32 is 2.4 GHz only. Set the hotspot to 2.4 GHz (on iPhone, enable "Maximize
-  Compatibility"), or the controllers will not see it.
-- Phones typically hand out addresses in a small private range and cap the number of
-  connected clients (often 5-10, fewer on some iPhones). Count the bridge host
-  against that cap.
-- Some hotspots filter broadcast. Firmware therefore supports a configured
-  `BRIDGE_HOST` that skips discovery. Give the bridge host a fixed or noted address.
-- Mobile data is not used for game traffic; all of it stays on the hotspot LAN, so
-  latency is local Wi-Fi latency (typically a few ms, with occasional spikes).
-- Keep each controller's Wi-Fi power save off (`WiFi.setSleep(false)`) to avoid
-  latency spikes of 100 ms or more.
+- The wired path exists to test the sensor and gesture logic with the fewest moving
+  parts. It is the default transport.
+- The port is auto-detected by USB vendor ID (CP210x, CH340/CH9102, FTDI, Espressif).
+  Windows also lists "Standard Serial over Bluetooth link" COM ports; those have no
+  vendor ID and are skipped.
+- Only one program can hold the port. The serial monitor must be closed first.
+- pyserial is blocking; `usb.py` reads lines with `asyncio.to_thread`.
+
+## Bluetooth notes
+
+- **BLE, not Bluetooth Classic.** Works on every ESP32 variant (S3 and C3 have no
+  Classic), needs no OS pairing or COM port, and `bleak` supports Windows, macOS and
+  Linux.
+- Firmware uses the BLE library built into the ESP32 Arduino core; no extra dependency.
+- The host must NOT pair the device in OS Bluetooth settings; `bleak` connects
+  directly. The board accepts one connection and stops advertising while connected.
+- The controller advertises as `WeFit`. With a single controller the bridge finds it
+  by name. If several are powered on in the same room, set `[ble] address` in the
+  config to pick one.
+- 20-byte packets fit the default BLE MTU, so no MTU negotiation is required.
+- Expected latency is one connection interval plus one sample period, roughly
+  30-50 ms. Not measured yet.
