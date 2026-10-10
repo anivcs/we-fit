@@ -4,9 +4,9 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api import create_app
-from backend.database import Base
-from backend.models import Score, utcnow
+from api import create_app
+from database import Base
+from models import Score, utcnow
 
 API = "/api/v1"
 

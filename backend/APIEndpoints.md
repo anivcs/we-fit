@@ -47,7 +47,7 @@ This document outlines the complete full-stack architecture, data flow, and deta
 
 - **Base URL:** `http://<server-ip>:8000/api/v1`
 - **Protocol:** HTTP/1.1 REST API
-- **Running locally:** `uv run uvicorn backend.api:app --reload` from the repo root. Interactive docs at `/docs`.
+- **Running locally:** `cd backend && uv run uvicorn api:app --reload` (or `uv run uvicorn api:app --app-dir backend --reload` from the repo root). Interactive docs at `/docs`.
 - **Configuration:** `DATABASE_URL` (e.g. `postgresql://user:pass@host:5432/wefit`; defaults to a local SQLite file `wefit.db`), `CORS_ORIGINS` (comma-separated, default `*`).
 - **Errors:** `404` unknown session/user, `409` duplicate session or session already ended, `422` invalid payload or query parameters, `503` health check when the database is unreachable.
 

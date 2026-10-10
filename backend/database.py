@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-from .config import to_async_url
+from config import to_async_url
 
 
 class Base(DeclarativeBase):
@@ -25,7 +25,7 @@ def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]
 
 
 async def init_db(engine: AsyncEngine) -> None:
-    from . import models  # noqa: F401  (registers tables on Base.metadata)
+    import models  # noqa: F401  (registers tables on Base.metadata)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

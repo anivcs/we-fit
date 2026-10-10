@@ -3,8 +3,9 @@ from datetime import UTC, datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .database import Base
+from database import Base
 
+# Pydantic Models for payload
 
 def utcnow() -> datetime:
     return datetime.now(UTC)

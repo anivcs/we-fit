@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..models import Score, User, utcnow
-from ..schemas import LeaderboardEntry, LeaderboardResponse, Timeframe
+from database import get_db
+from models import Score, User, utcnow
+from schemas import LeaderboardEntry, LeaderboardResponse, Timeframe
 
 router = APIRouter(tags=["leaderboard"])
 

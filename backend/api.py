@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import API_PREFIX, get_cors_origins, get_database_url
-from .database import create_engine, create_sessionmaker, init_db
-from .routers import game, health, leaderboard, users
+from config import API_PREFIX, get_cors_origins, get_database_url
+from database import create_engine, create_sessionmaker, init_db
+from routers import game, health, leaderboard, users
 
 
 def create_app(database_url: str | None = None) -> FastAPI:

@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..models import User, utcnow
-from ..schemas import (
+from database import get_db
+from models import User, utcnow
+from schemas import (
     Identifier,
     UserStatsResponse,
     UserStatsUpdateRequest,
     UserStatsUpdateResponse,
 )
-from ..services import calculate_xp, get_or_create_user, record_game
+from services import calculate_xp, get_or_create_user, record_game
 
 router = APIRouter(prefix="/user", tags=["user"])
 

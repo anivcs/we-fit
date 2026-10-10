@@ -2,7 +2,8 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Score, User
+from models import Score, User
+
 
 XP_PER_SCORE_POINT = 0.01
 

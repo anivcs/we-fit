@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..models import utcnow
-from ..schemas import HealthResponse
+from database import get_db
+from models import utcnow
+from schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
 

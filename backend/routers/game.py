@@ -5,9 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..models import GameSession, MovementEvent, utcnow
-from ..schemas import (
+from database import get_db
+from models import GameSession, MovementEvent, utcnow
+from schemas import (
     EarnedRewards,
     GameEndRequest,
     GameEndResponse,
@@ -16,7 +16,7 @@ from ..schemas import (
     GameSyncRequest,
     GameSyncResponse,
 )
-from ..services import calculate_xp, get_or_create_user, record_game
+from services import calculate_xp, get_or_create_user, record_game
 
 router = APIRouter(prefix="/game", tags=["game"])
 
