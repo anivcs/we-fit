@@ -1,2 +1,11 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
-*
+.venv 
+backend/__pycache__
+backend/.DS_Store
+__pycache__/
+.pytest_cache/
+*.db
+
+.DS_Store
+.env
+frontend/node_modules/
+frontend/dist/
