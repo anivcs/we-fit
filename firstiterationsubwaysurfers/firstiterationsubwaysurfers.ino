@@ -9,20 +9,27 @@
 #define SDA_PIN 21
 #define SCL_PIN 22
 
-// Support either BNO055 I2C address
+// Support both BNO055 I2C addresses
 Adafruit_BNO055 bno28(55, 0x28, &Wire);
 Adafruit_BNO055 bno29(56, 0x29, &Wire);
 Adafruit_BNO055* bno = nullptr;
 
 // Movement sensitivity (m/s^2)
-const float SIDE_THRESHOLD = 2.0;
-const float UP_THRESHOLD = 2.5;
+const float SIDE_THRESHOLD = 4.0;
+const float UP_THRESHOLD = 7.0;
+const float DOWN_THRESHOLD = 4;
 
-// Minimum 1 second between movements
-const unsigned long COOLDOWN = 1000;
+// Return-to-rest sensitivity
+const float RESET_THRESHOLD = 1.0;
+
+// Minimum time between commands
+const unsigned long COOLDOWN = 500;
 
 unsigned long lastMovement = 0;
 unsigned long lastPrint = 0;
+
+bool readyForMovement = true;
+unsigned long restStart = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -37,14 +44,15 @@ void setup() {
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(100000);
 
-  // Scan for sensor at address 0x28
+  // Search address 0x28
   Wire.beginTransmission(0x28);
+
   if (Wire.endTransmission() == 0) {
     Serial.println("Device found at 0x28");
     bno = &bno28;
   }
 
-  // Try alternative address 0x29
+  // Search address 0x29
   if (bno == nullptr) {
     Wire.beginTransmission(0x29);
 
@@ -74,7 +82,7 @@ void setup() {
   }
 
   Serial.println("BNO055 CONNECTED!");
-  Serial.println("Keep the sensor still for 2 seconds.");
+  Serial.println("Keep sensor still for 2 seconds.");
 
   delay(2000);
 
@@ -83,7 +91,7 @@ void setup() {
 
 void loop() {
 
-  // Get acceleration without gravity
+  // Read linear acceleration without gravity
   imu::Vector<3> accel =
     bno->getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
 
@@ -93,7 +101,7 @@ void loop() {
 
   unsigned long currentTime = millis();
 
-  // Print live acceleration readings
+  // Print acceleration readings
   if (currentTime - lastPrint >= 200) {
     Serial.print("X: ");
     Serial.print(x, 2);
@@ -107,8 +115,28 @@ void loop() {
     lastPrint = currentTime;
   }
 
-  // Detect movements with a 1-second cooldown
-  if (currentTime - lastMovement >= COOLDOWN) {
+  // Check whether sensor has returned to rest
+  bool atRest =
+    fabs(x) < RESET_THRESHOLD &&
+    fabs(y) < RESET_THRESHOLD &&
+    fabs(z) < RESET_THRESHOLD;
+
+  if (atRest) {
+    if (restStart == 0) {
+      restStart = currentTime;
+    }
+
+    // Require 150 ms of stillness
+    if (currentTime - restStart >= 150) {
+      readyForMovement = true;
+    }
+  } else {
+    restStart = 0;
+  }
+
+  // Detect one movement at a time
+  if (readyForMovement &&
+      currentTime - lastMovement >= COOLDOWN) {
 
     // UP = Positive Z acceleration
     if (z > UP_THRESHOLD &&
@@ -117,6 +145,17 @@ void loop() {
 
       Serial.println(">>> UP <<<");
       lastMovement = currentTime;
+      readyForMovement = false;
+    }
+
+    // DOWN = Negative Z acceleration
+    else if (z < -DOWN_THRESHOLD &&
+             -z > fabs(x) &&
+             -z > fabs(y)) {
+
+      Serial.println(">>> DOWN <<<");
+      lastMovement = currentTime;
+      readyForMovement = false;
     }
 
     // RIGHT = Positive X acceleration
@@ -126,6 +165,7 @@ void loop() {
 
       Serial.println(">>> RIGHT <<<");
       lastMovement = currentTime;
+      readyForMovement = false;
     }
 
     // LEFT = Negative X acceleration
@@ -135,6 +175,7 @@ void loop() {
 
       Serial.println(">>> LEFT <<<");
       lastMovement = currentTime;
+      readyForMovement = false;
     }
   }
 
