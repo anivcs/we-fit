@@ -1,0 +1,12 @@
+# Run from the repo root:  pip install -r requirements.txt
+# Top-level packages only; pip resolves the rest (including the Windows winrt packages).
+# Keep this file UTF-8. PowerShell's `pip freeze > requirements.txt` writes UTF-16,
+# which pip cannot read.
+
+bleak>=3.0          # Bluetooth LE
+pyserial>=3.5       # USB serial
+pynput>=1.7         # keyboard sink (presses real arrow keys)
+pytest>=8           # checks: python check.py
+platformio>=6.1     # build and flash the ESP32 firmware
+
+-e ./bridge         # this repo's wefit_bridge package

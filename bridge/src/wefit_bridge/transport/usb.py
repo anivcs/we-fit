@@ -1,0 +1,59 @@
+"""USB serial transport: reads the sample lines the firmware prints on its USB port."""
+
+import asyncio
+import logging
+from collections.abc import AsyncIterator
+
+import serial
+from serial.tools import list_ports
+
+from ..protocol import SERIAL_BAUD, Sample, parse_sample_line
+
+log = logging.getLogger(__name__)
+
+# USB vendor IDs of the serial chips found on ESP32 boards
+ESP32_USB_VENDORS = {
+    0x10C4: "CP210x",
+    0x1A86: "CH340/CH9102",
+    0x0403: "FTDI",
+    0x303A: "Espressif",
+}
+
+
+def find_ports() -> list[str]:
+    """Serial ports that look like an ESP32 board, e.g. ["COM5"]."""
+    return [p.device for p in list_ports.comports() if p.vid in ESP32_USB_VENDORS]
+
+
+def describe_ports() -> list[str]:
+    """Every serial port on this machine, for error messages."""
+    return [f"{p.device}: {p.description}" for p in list_ports.comports()]
+
+
+class UsbTransport:
+    def __init__(self, port: str | None = None, baud: int = SERIAL_BAUD, retry_delay_s: float = 1.0):
+        self.port = port
+        self.baud = baud
+        self.retry_delay_s = retry_delay_s
+
+    async def samples(self) -> AsyncIterator[Sample]:
+        while True:
+            port = self.port or next(iter(find_ports()), None)
+            if port is None:
+                log.warning("no ESP32 found on USB, looking again")
+                await asyncio.sleep(self.retry_delay_s)
+                continue
+
+            try:
+                # Opening the port resets most ESP32 boards; samples start ~3 s later
+                with serial.Serial(port, self.baud, timeout=0.5) as conn:
+                    log.info("controller connected on %s", port)
+                    while True:
+                        raw = await asyncio.to_thread(conn.readline)
+                        sample = parse_sample_line(raw.decode("ascii", errors="ignore"))
+                        if sample is not None:
+                            yield sample
+            except serial.SerialException as e:
+                log.warning("USB error on %s: %s", port, e)
+
+            await asyncio.sleep(self.retry_delay_s)
