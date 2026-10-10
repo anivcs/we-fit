@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WeFit Runner</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="scene"></div>
+
+    <div id="status-bar">
+      <span id="backend-status" class="pill">Backend: checking…</span>
+      <span id="controller-status" class="pill">Controller: keyboard</span>
+    </div>
+
+    <div id="hud" hidden>
+      <div class="hud-item"><span class="hud-label">Score</span><span id="hud-score">0</span></div>
+      <div class="hud-item"><span class="hud-label">Coins</span><span id="hud-coins">0</span></div>
+      <div class="hud-item"><span class="hud-label">Distance</span><span id="hud-distance">0 m</span></div>
+    </div>
+
+    <div id="countdown" hidden></div>
+    <div id="paused" hidden>Paused<small>Press P or Esc to resume</small></div>
+
+    <div id="overlay">
+      <section id="menu" class="card">
+        <h1>WeFit Runner</h1>
+        <p class="lead">Lean left or right to switch lanes, jump to hop barriers, squat to duck.</p>
+        <label class="field">
+          Player name
+          <input id="player-name" maxlength="32" autocomplete="off" placeholder="Optional: saves your stats" />
+        </label>
+        <button id="play-btn" class="primary">Play</button>
+        <p class="hint">Jump to start. Keyboard: ← → lanes, ↑ / Space jump, ↓ duck, P pause.</p>
+        <div id="player-stats" hidden></div>
+      </section>
+
+      <section id="gameover" class="card" hidden>
+        <h2>Game over</h2>
+        <div class="results">
+          <div><span class="hud-label">Score</span><strong id="result-score">0</strong></div>
+          <div><span class="hud-label">Coins</span><strong id="result-coins">0</strong></div>
+          <div><span class="hud-label">Distance</span><strong id="result-distance">0 m</strong></div>
+        </div>
+        <p id="high-score" class="badge" hidden>New high score!</p>
+        <p id="save-status" class="hint"></p>
+        <div class="actions">
+          <button id="again-btn" class="primary">Play again</button>
+          <button id="menu-btn">Menu</button>
+        </div>
+        <p class="hint">Jump to play again.</p>
+      </section>
+
+      <section id="leaderboard" class="card">
+        <h2>Leaderboard</h2>
+        <div class="tabs" role="tablist">
+          <button data-timeframe="daily">Today</button>
+          <button data-timeframe="weekly">This week</button>
+          <button data-timeframe="all_time" class="active">All time</button>
+        </div>
+        <ol id="leaderboard-list"></ol>
+        <p id="leaderboard-empty" class="hint" hidden></p>
+      </section>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
