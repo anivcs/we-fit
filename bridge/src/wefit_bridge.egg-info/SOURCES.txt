@@ -17,6 +17,7 @@ src/wefit_bridge.egg-info/top_level.txt
 src/wefit_bridge/sinks/__init__.py
 src/wefit_bridge/sinks/console.py
 src/wefit_bridge/sinks/keyboard.py
+src/wefit_bridge/sinks/websocket.py
 src/wefit_bridge/transport/__init__.py
 src/wefit_bridge/transport/ble.py
 src/wefit_bridge/transport/fake.py
@@ -26,3 +27,4 @@ tests/test_keys.py
 tests/test_pipeline.py
 tests/test_protocol.py
 tests/test_setup.py
+tests/test_websocket.py

@@ -43,7 +43,7 @@ void haltWithError(const char* message) {
   Serial.println(message);
 
   while (true) {
-    delay(1000);
+    delay(10);
   }
 }
 
