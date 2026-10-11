@@ -30,6 +30,8 @@ class WebSocketSink:
         self.port = port
         self.clients: set[ServerConnection] = set()
         self._server: Server | None = None
+        # Called when the game page closes its connection; run() points this at the latency summary
+        self.on_game_exit = None
 
     async def start(self) -> None:
         try:
@@ -53,6 +55,8 @@ class WebSocketSink:
         finally:
             self.clients.discard(connection)
             log.info("game disconnected")
+            if self.on_game_exit is not None:
+                self.on_game_exit()
 
     def emit(self, event: KeyEvent) -> None:
         # The game treats each move as a one-shot action, so key releases are not sent

@@ -128,7 +128,7 @@ Event shape from the console sink:
 {"type": "key", "key": "left", "pressed": false, "t": 15180.62}
 ```
 
-`t` is the host's monotonic clock in seconds, useful only for differences.
+`t` is the host's `clock.now` (`time.perf_counter`) in seconds, useful only for differences.
 
 ## Drift and per-round reset
 

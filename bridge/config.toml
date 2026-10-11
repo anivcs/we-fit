@@ -15,6 +15,9 @@ key_hold_ms = 120      # how long a key stays down after a gesture
 host = "127.0.0.1"     # "0.0.0.0" if the game runs in a browser on another machine
 port = 8765
 
+[latency]
+enabled = true         # record sample timing to logs/raw/; --no-latency-log overrides
+
 [ble]
 name = "WeFit"
 # address = "AA:BB:CC:DD:EE:FF"   # optional; find it with: python -m wefit_bridge --scan

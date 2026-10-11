@@ -25,6 +25,8 @@ def fail(message: str):
         ("bleak", "bleak"),
         ("serial", "pyserial"),
         ("websockets", "websockets"),
+        ("numpy", "numpy"),
+        ("matplotlib", "matplotlib"),
         ("pynput", "pynput"),
         ("platformio", "platformio"),
     ],
@@ -32,6 +34,43 @@ def fail(message: str):
 def test_package_is_installed(module, package):
     if importlib.util.find_spec(module) is None:
         fail(f"{package} is not installed. Run: pip install -r requirements.txt")
+
+
+# --- Clocks -----------------------------------------------------------------
+
+CLOCK_CHECK_S = 6  # long enough to fit a line, short enough for a setup check
+CLOCK_CHECK_TIMEOUT_S = 30  # covers the board rebooting or the Bluetooth scan
+
+
+def check_clocks(transport, link: str):
+    """Nothing sets the ESP32's clock; the bridge maps it onto the PC clock instead.
+
+    This checks that the mapping is usable, and prints how good it is.
+    """
+    from wefit_bridge.latency.metrics import clock_check
+
+    samples = []
+
+    async def collect():
+        async for sample in transport.samples():
+            samples.append(sample)
+            if sample.rx - samples[0].rx >= CLOCK_CHECK_S:
+                return
+
+    try:
+        asyncio.run(asyncio.wait_for(collect(), CLOCK_CHECK_TIMEOUT_S))
+    except asyncio.TimeoutError:
+        pass
+    result = clock_check(samples)
+    print(f"{link}: {result.describe()}")
+    if result.drift_ppm is None:
+        fail(f"Too few samples arrived over {link} to compare the clocks. Run the other {link} checks first.")
+    if not result.ok:
+        fail(
+            f"The ESP32 clock does not track this PC's clock over {link}: {result.describe()}. "
+            "Re-flash the firmware (pio run -d firmware -t upload) and close other programs "
+            "using the controller."
+        )
 
 
 # --- USB --------------------------------------------------------------------
@@ -84,6 +123,13 @@ def test_esp32_sends_samples_over_usb():
     if not lines:
         fail(f"{port} is silent. Flash the firmware: pio run -d firmware -t upload")
     fail(f"{port} sent no samples. Last lines from the board: {lines[-3:]}")
+
+
+@pytest.mark.usb
+def test_esp32_clock_tracks_host_over_usb():
+    from wefit_bridge.transport.usb import UsbTransport
+
+    check_clocks(UsbTransport(port=usb_port()), "USB")
 
 
 # --- Bluetooth --------------------------------------------------------------
@@ -170,3 +216,10 @@ def test_esp32_sends_samples_over_bluetooth():
             f"Firmware speaks protocol {info.protocol_version}, this code expects "
             f"{PROTOCOL_VERSION}. Re-flash: pio run -d firmware -t upload"
         )
+
+
+@pytest.mark.bluetooth
+def test_esp32_clock_tracks_host_over_bluetooth():
+    from wefit_bridge.transport.ble import BleTransport
+
+    check_clocks(BleTransport(address=controller().address), "Bluetooth")

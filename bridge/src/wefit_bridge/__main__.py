@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from .config import TRANSPORTS, Config, load_config
+from .latency import make_tracker
 from .pipeline import build_pipeline, run
 from .sinks import SINKS
 from .sinks.websocket import WebSocketPortError
@@ -55,6 +56,11 @@ def main() -> None:
     )
     parser.add_argument("--ws-host", help="websocket sink address (default: 127.0.0.1)")
     parser.add_argument("--ws-port", type=int, help="websocket sink port (default: 8765)")
+    parser.add_argument(
+        "--no-latency-log",
+        action="store_true",
+        help="do not record sample timing to logs/raw/ or print the latency summary",
+    )
     parser.add_argument("--scan", action="store_true", help="list visible controllers and exit")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -80,13 +86,17 @@ def main() -> None:
     if args.ws_port is not None:
         config.websocket_port = args.ws_port
 
+    if args.no_latency_log:
+        config.latency_log = False
+
     try:
         pipeline = build_pipeline(config)
     except TuningError as e:
         parser.exit(1, f"{e}\n")
 
     try:
-        asyncio.run(run(make_transport(config), pipeline))
+        transport = make_transport(config)
+        asyncio.run(run(transport, pipeline, tracker=make_tracker(config, transport)))
     except KeyboardInterrupt:
         pass
     except WebSocketPortError as e:

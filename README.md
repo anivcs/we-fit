@@ -84,6 +84,12 @@ This is the simplest way to check that everything works.
    python check.py usb
    ```
 
+   The last check compares the ESP32's clock with the laptop's for 6 seconds and prints
+   the result under `PASSES`, for example `ESP32 clock runs +40 ppm against this PC,
+   and maps onto the PC clock to within 3.0 ms (p95)`. Nothing sets the ESP32's clock
+   and you do not need to: the bridge works out the difference from the readings. The
+   check fails only if the two clocks disagree badly (over 1 % drift or 100 ms spread).
+
 4. Run the bridge:
 
    ```powershell
@@ -134,7 +140,8 @@ device called `WeFit`, remove it there first.
    ```
 
 5. **Run the Bluetooth checks.** They confirm that Bluetooth is on, the board is
-   visible, and readings arrive:
+   visible, readings arrive, and the ESP32's clock tracks the laptop's (same check as
+   in section 3, over Bluetooth):
 
    ```powershell
    python check.py bluetooth
@@ -212,6 +219,14 @@ needed. You also need [Node.js](https://nodejs.org) (current LTS) for the game p
 
    For the wired controller use `--transport usb`. With no board at all, use
    `--transport fake` to play scripted gestures.
+
+   The bridge records the timing of every reading to `logs/raw/` (about 5 MB per hour).
+   When you close the game tab, and again when you stop the bridge with `Ctrl+C`, it
+   prints a short latency summary. To turn both off, add `--no-latency-log`:
+
+   ```powershell
+   python -m wefit_bridge --transport ble --sink websocket --sink console --no-latency-log
+   ```
 
 3. **Open the game** in a browser on the same laptop:
 
@@ -350,7 +365,40 @@ frontend/     the browser game (Three.js, Vite)
 backend/      optional score and leaderboard API (FastAPI)
 examples/     game_stub.py
 check.py      runs the bridge checks
+report.py     writes a latency report
+logs/         raw/ latency logs (not in git), reports/ latency reports (in git)
 firstiterationsubwaysurfers/   original Arduino sketch; the gesture logic came from here
 ```
 
 Other tests: `uv run pytest` (backend) and `cd frontend && npm test`.
+
+## Latency report
+
+Every bridge run logs its timing (section 6). Turn the logs into a report with:
+
+```powershell
+python report.py
+```
+
+It writes one HTML file to `logs/reports/` and prints its path. Open it in a browser.
+The report has a summary table, three charts and one-line definitions.
+
+| Command | Report covers |
+| --- | --- |
+| `python report.py` | The newest USB session and the newest Bluetooth session, side by side |
+| `python report.py usb` | The newest session over one connection: `usb`, `ble` or `fake` |
+| `python report.py logs/raw/<file>.bin` | That session; give several files to compare them |
+
+What the numbers mean:
+
+- **Input latency** is the time from the ESP32 reading the sensor to the bridge sending
+  the key to the game. The browser's drawing time is not measured yet.
+- It is measured **above the connection's best case**. The ESP32 and the laptop have
+  separate clocks, so the bridge compares each reading with the fastest ones it has seen.
+  The connection's fixed minimum delay is not included.
+- **Jitter** is how much the latency varies. **Loss** is readings that never arrived.
+
+Raw logs in `logs/raw/` stay on your machine; git ignores them. Reports in
+`logs/reports/` are meant to be committed. To try it with no board, run
+`python -m wefit_bridge --transport fake` for half a minute, stop it, then
+`python report.py fake`.

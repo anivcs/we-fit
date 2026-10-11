@@ -111,6 +111,9 @@ void setupBle() {
 }
 
 void sendSample() {
+  // Stamp before the I2C reads so t_ms marks when the sensor was read
+  uint16_t sampledAt = (uint16_t)millis();
+
   // Acceleration without gravity, in the sensor frame
   imu::Vector<3> accel =
     bno->getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
@@ -121,7 +124,7 @@ void sendSample() {
 
   SamplePacket packet;
   packet.seq = seq++;
-  packet.t_ms = (uint16_t)millis();
+  packet.t_ms = sampledAt;
   packet.accel[0] = (int16_t)lround(accel.x() * ACCEL_SCALE);
   packet.accel[1] = (int16_t)lround(accel.y() * ACCEL_SCALE);
   packet.accel[2] = (int16_t)lround(accel.z() * ACCEL_SCALE);
@@ -166,7 +169,11 @@ void loop() {
   unsigned long currentTime = millis();
 
   if (currentTime - lastSample >= SAMPLE_PERIOD_MS) {
-    lastSample = currentTime;
+    // Step by the period so a late loop does not stretch every later sample
+    lastSample += SAMPLE_PERIOD_MS;
+    if (currentTime - lastSample >= SAMPLE_PERIOD_MS) {
+      lastSample = currentTime;  // fell a whole period behind; do not send a burst
+    }
 
     // Gesture detection lives in the Python bridge; firmware only streams
     sendSample();

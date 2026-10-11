@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
 
+from ..clock import now
 from ..protocol import (
     DEVICE_NAME,
     INFO_CHAR_UUID,
@@ -32,6 +33,9 @@ class BleTransport:
         self.address = address
         self.scan_timeout_s = scan_timeout_s
         self.retry_delay_s = retry_delay_s
+        self.corrupt = 0  # notifications of the wrong length
+        self.dropped = 0  # samples discarded because the consumer fell behind
+        self.info = None  # Info read from the controller on connect
 
     async def samples(self) -> AsyncIterator[Sample]:
         while True:
@@ -44,12 +48,18 @@ class BleTransport:
             disconnected = asyncio.Event()
 
             def on_notify(_char, data: bytearray) -> None:
+                rx = now()
                 try:
-                    queue.put_nowait(decode_sample(bytes(data)))
+                    sample = decode_sample(bytes(data), rx)
                 except ValueError as e:
+                    self.corrupt += 1
                     log.debug("bad sample dropped: %s", e)
-                except asyncio.QueueFull:
-                    pass  # consumer is behind; newer samples matter more than old ones
+                    return
+                if queue.full():
+                    # Consumer is behind; newer samples matter more than old ones
+                    queue.get_nowait()
+                    self.dropped += 1
+                queue.put_nowait(sample)
 
             try:
                 async with BleakClient(
@@ -78,7 +88,7 @@ class BleTransport:
         return await BleakScanner.find_device_by_name(self.name, timeout=self.scan_timeout_s)
 
     async def _check_version(self, client: BleakClient) -> None:
-        info = decode_info(bytes(await client.read_gatt_char(INFO_CHAR_UUID)))
+        info = self.info = decode_info(bytes(await client.read_gatt_char(INFO_CHAR_UUID)))
         if info.protocol_version != PROTOCOL_VERSION:
             raise BleakError(
                 f"protocol version mismatch: firmware {info.protocol_version}, "

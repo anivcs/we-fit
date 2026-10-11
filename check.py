@@ -28,7 +28,8 @@ def main() -> int:
         print(__doc__)
         return 2
 
-    args = [str(Path(__file__).parent / "bridge" / "tests"), "-v", "--tb=short"]
+    # -rP prints what passing checks measured, e.g. the clock comparison
+    args = [str(Path(__file__).parent / "bridge" / "tests"), "-v", "--tb=short", "-rP"]
     if group is not None:
         args += ["-m", GROUPS[group]]
     return pytest.main(args)

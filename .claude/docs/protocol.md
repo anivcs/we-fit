@@ -23,7 +23,7 @@ are packed.
 | Offset | Size | Type | Field | Notes |
 | --- | --- | --- | --- | --- |
 | 0 | 2 | u16 | seq | increments per sample, wraps |
-| 2 | 2 | u16 | t_ms | device `millis()` truncated, wraps every ~65 s |
+| 2 | 2 | u16 | t_ms | device `millis()` taken just before the sensor read, truncated, wraps every ~65 s |
 | 4 | 6 | i16[3] | accel | linear acceleration x, y, z; value = raw / 100 m/s² |
 | 10 | 8 | i16[4] | quat | orientation w, x, y, z; value = raw / 16384 |
 | 18 | 1 | u8 | calib | BNO055 calibration: sys<<6, gyro<<4, accel<<2, mag |
@@ -70,7 +70,10 @@ Python: `parse_sample_line()` in `protocol.py`.
 - 20 bytes is the largest payload that fits the default ATT MTU of 23. Keep the
   sample at or under that unless MTU negotiation is added on both sides.
 - The bridge drops any notification that is not exactly 20 bytes.
-- The bridge timestamps samples on arrival with its own monotonic clock. `seq` and
-  `t_ms` are for diagnostics (loss, jitter) and are not used by gesture detection.
+- The bridge stamps each sample on arrival with its own clock (`clock.now`, in
+  `Sample.rx`). `seq` and `t_ms` feed the latency log (loss, jitter, delay; see
+  `latency-tracking.md`) and are not used by gesture detection.
+- Nothing sets the ESP32's clock. The bridge fits the device-to-host clock mapping from
+  the samples, so no time sync message exists on either transport.
 - The firmware sends no BLE notifications when no host is connected and restarts
   advertising on disconnect. The bridge rescans and reconnects on its own.

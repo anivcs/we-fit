@@ -7,10 +7,11 @@ name = "wefit-bridge"
 version = "0.1.0"
 description = "Turns an ESP32 IMU controller (USB or BLE) into arrow-key inputs for a game"
 requires-python = ">=3.11"
-dependencies = ["bleak>=3.0", "pyserial>=3.5", "websockets>=13"]
+dependencies = ["bleak>=3.0", "pyserial>=3.5", "websockets>=13", "numpy>=1.26"]
 
 [project.optional-dependencies]
 keyboard = ["pynput>=1.7"]
+report = ["matplotlib>=3.8"]
 dev = ["pytest>=8"]
 
 [project.scripts]
