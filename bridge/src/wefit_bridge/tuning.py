@@ -22,6 +22,18 @@ class TuningError(ValueError):
     pass
 
 
+JUMP_BUFFER_MAX_MS = 1000
+
+
+@dataclass(slots=True)
+class GameConfig:
+    """The [game] table in tuning.toml. Sent to the browser game each time it connects."""
+
+    # Keep in step with BUFFER_SECONDS in frontend/src/inputBuffer.js, the value the game
+    # uses when it is not connected to the bridge (keyboard play).
+    jump_buffer_ms: float = 150.0
+
+
 @dataclass(slots=True)
 class Tuning:
     """Everything tuning.toml holds for one transport."""
@@ -29,6 +41,7 @@ class Tuning:
     gestures: GestureConfig = field(default_factory=GestureConfig)
     fusion_mode: str = "imu"  # used when --gravity is not given
     gravity: GravityConfig = field(default_factory=GravityConfig)
+    game: GameConfig = field(default_factory=GameConfig)
 
 
 def find_tuning() -> Path | None:
@@ -74,7 +87,7 @@ def load(transport: str, path: str | Path | None = None) -> Tuning:
     try:
         with open(path, "rb") as f:
             raw = tomllib.load(f)
-        _check_names(raw, ("fusion_mode", "orientation", "gravity", *PROFILES), "top level")
+        _check_names(raw, ("fusion_mode", "orientation", "gravity", "game", *PROFILES), "top level")
 
         fusion_mode = raw.get("fusion_mode", "imu")
         if fusion_mode not in MODES:
@@ -92,6 +105,17 @@ def load(transport: str, path: str | Path | None = None) -> Tuning:
                 for name in gravity_names
             }
         )
+
+        game_table = raw.get("game", {})
+        _check_names(game_table, tuple(f.name for f in fields(GameConfig)), "[game]")
+        jump_buffer_ms = _number(
+            game_table, "jump_buffer_ms", GameConfig().jump_buffer_ms, "[game]"
+        )
+        if jump_buffer_ms > JUMP_BUFFER_MAX_MS:
+            raise ValueError(
+                f"[game]: jump_buffer_ms = {jump_buffer_ms:g} must be {JUMP_BUFFER_MAX_MS} or less"
+            )
+        game = GameConfig(jump_buffer_ms=jump_buffer_ms)
 
         orientation = raw.get("orientation", {})
         _check_names(orientation, ("right", "up"), "[orientation]")
@@ -122,4 +146,4 @@ def load(transport: str, path: str | Path | None = None) -> Tuning:
         raise TuningError(f"{path}: {e}") from None
 
     log.info("gesture tuning: %s %s", path, where)
-    return Tuning(config, fusion_mode, gravity)
+    return Tuning(config, fusion_mode, gravity, game)

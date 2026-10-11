@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 
+import { createInputBuffer } from './inputBuffer.js';
 import { MOVES } from './moves.js';
 import { createRng } from './rng.js';
 import { LANES, OBSTACLE, OBSTACLE_SPECS, difficultyAt, generateRow, nextRowGap } from './track.js';
@@ -56,10 +57,15 @@ function makeTrackTexture() {
 }
 
 export class Game {
-  constructor(container, { onUpdate, onGameOver }) {
+  // onMove(move) runs whenever a move actually takes effect, including a buffered one that
+  // was held back until it became legal.
+  constructor(container, { onUpdate, onGameOver, onMove }) {
     this.container = container;
     this.onUpdate = onUpdate;
     this.onGameOver = onGameOver;
+    this.onMove = onMove;
+    this.inputBuffer = createInputBuffer();
+    this.runTime = 0; // seconds of actual play; stops while paused, unlike `elapsed`
     this.state = 'idle';
     this.obstacles = [];
     this.coinsInWorld = [];
@@ -239,6 +245,8 @@ export class Game {
     this.coins = 0;
     this.nextRowAt = FIRST_ROW_AT;
     this.player = { lane: 1, x: LANES[1], y: 0, vy: 0, duckTimer: 0 };
+    this.runTime = 0;
+    this.inputBuffer.clear();
     this.state = 'ready';
     this.spawnAhead();
     this.syncMeshes();
@@ -254,11 +262,42 @@ export class Game {
     else if (!paused && this.state === 'paused') this.state = 'running';
   }
 
-  // Returns true if the move changed the player's state, so callers only report real moves.
+  // From [game] jump_buffer_ms in tuning.toml, sent by the bridge when it connects.
+  setJumpBufferMs(ms) {
+    this.inputBuffer.setWindow(ms / 1000);
+  }
+
+  isGrounded() {
+    return this.player.y <= 0 && this.player.vy <= 0;
+  }
+
+  // Returns true if the move changed the player's state right now. A JUMP pressed in the air
+  // returns false but is remembered briefly and runs on landing (see flushBufferedMove).
   handleMove(move) {
     if (this.state !== 'running') return false;
+
+    if (move === MOVES.JUMP && !this.isGrounded()) {
+      this.inputBuffer.hold(MOVES.JUMP, this.runTime);
+      return false;
+    }
+    // Ducking means the player wants to come down, so a pending jump no longer applies
+    if (move === MOVES.DUCK) this.inputBuffer.clear();
+
+    const applied = this.applyMove(move);
+    if (applied) this.onMove?.(move);
+    return applied;
+  }
+
+  // Runs a jump that was pressed shortly before landing.
+  flushBufferedMove() {
+    if (!this.isGrounded()) return;
+    const move = this.inputBuffer.take(this.runTime);
+    if (move && this.applyMove(move)) this.onMove?.(move);
+  }
+
+  applyMove(move) {
     const p = this.player;
-    const grounded = p.y <= 0 && p.vy <= 0;
+    const grounded = this.isGrounded();
     switch (move) {
       case MOVES.LEFT:
         if (p.lane === 0) return false;
@@ -311,6 +350,7 @@ export class Game {
 
   update(dt) {
     const p = this.player;
+    this.runTime += dt;
     this.speed = Math.min(MAX_SPEED, this.speed + ACCELERATION * dt);
     this.distance += this.speed * dt;
     this.spawnAhead();
@@ -327,6 +367,7 @@ export class Game {
         p.vy = 0;
       }
     }
+    this.flushBufferedMove();
     p.duckTimer = Math.max(0, p.duckTimer - dt);
 
     if (this.checkCollision()) {

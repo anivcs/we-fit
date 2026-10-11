@@ -128,7 +128,13 @@ def build_pipeline(
     """Also settles config.fusion_mode, so make_transport() must be called after this."""
     if sinks is None:
         sinks = [make_sink(name, config) for name in config.sinks]
+    sinks = list(sinks)
     tuning = load(config.transport)
+    for sink in sinks:
+        # Only the WebSocket sink talks to the game, so only it has game settings to send
+        configure_game = getattr(sink, "configure_game", None)
+        if configure_game is not None:
+            configure_game(tuning.game)
     gestures = config.gestures or tuning.gestures
     # Order of authority: --gravity, then tuning.toml, then IMU
     config.fusion_mode = "ndof" if config.gravity else (config.fusion_mode or tuning.fusion_mode)

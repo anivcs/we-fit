@@ -61,7 +61,25 @@ export function parseControllerMessage(raw, detector, now) {
   return null;
 }
 
-export function connectController(url, { onMove, onStatus, WebSocketImpl = WebSocket, detector } = {}) {
+// The bridge sends {"type": "settings", "jump_buffer_ms": 150} first on every connect, with
+// values from tuning.toml. Returns { jumpBufferMs } or null if this is not a settings message.
+export function parseSettingsMessage(raw) {
+  const text = typeof raw === 'string' ? raw : raw instanceof ArrayBuffer ? textDecoder.decode(raw) : null;
+  if (text === null || !text.includes('"settings"')) return null;
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (data?.type !== 'settings') return null;
+
+  const ms = data.jump_buffer_ms;
+  return { jumpBufferMs: typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : null };
+}
+
+export function connectController(url, { onMove, onSettings, onStatus, WebSocketImpl = WebSocket, detector } = {}) {
   const gestures = detector ?? createGestureDetector();
   let socket = null;
   let retryDelay = 1000;
@@ -77,6 +95,11 @@ export function connectController(url, { onMove, onStatus, WebSocketImpl = WebSo
       onStatus?.('connected');
     };
     socket.onmessage = (event) => {
+      const settings = parseSettingsMessage(event.data);
+      if (settings) {
+        onSettings?.(settings);
+        return;
+      }
       const move = parseControllerMessage(event.data, gestures);
       if (move) onMove(move);
     };

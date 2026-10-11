@@ -57,6 +57,7 @@ const game = new Game(ui.scene, {
     ui.hudDistance.textContent = `${formatNumber(distance)} m`;
   },
   onGameOver: handleGameOver,
+  onMove: reportMove,
 });
 game.reset(randomSeed());
 
@@ -220,10 +221,13 @@ function handleMove(move) {
     return;
   }
   if (appState !== 'playing') return;
-  if (game.handleMove(move) && session?.online) {
-    // Telemetry only: gameplay never waits on the network.
-    api.syncMove(session.id, move).catch(() => {});
-  }
+  game.handleMove(move);
+}
+
+// Called by the game for every move that takes effect, including a jump that was buffered
+// and ran on landing. Telemetry only: gameplay never waits on the network.
+function reportMove(move) {
+  if (session?.online) api.syncMove(session.id, move).catch(() => {});
 }
 
 function goToMenu() {
@@ -240,6 +244,10 @@ if (CONTROLLER_URL) {
   const labels = { connecting: ['connecting…', 'warn'], connected: ['connected', 'ok'], disconnected: ['reconnecting…', 'error'] };
   connectController(CONTROLLER_URL, {
     onMove: handleMove,
+    // tuning.toml [game], sent by the bridge on every (re)connect
+    onSettings: ({ jumpBufferMs }) => {
+      if (jumpBufferMs !== null) game.setJumpBufferMs(jumpBufferMs);
+    },
     onStatus: (status) => setPill(ui.controllerStatus, `Controller: ${labels[status][0]}`, labels[status][1]),
   });
 }

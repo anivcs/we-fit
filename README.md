@@ -251,6 +251,13 @@ needed. You also need [Node.js](https://nodejs.org) (current LTS) for the game p
 The keyboard still works while the controller is connected: ← → lanes, ↑ or Space
 jump, ↓ duck, P pause.
 
+The game remembers a jump pressed up to 150 ms before you land and runs it as soon as you
+touch down, so a slightly early jump is not lost. A duck cancels a pending jump. Change the
+window with `jump_buffer_ms` in the `[game]` section of `tuning.toml` (0 turns it off, max
+1000). The bridge sends it to the page each time the page connects, so after editing,
+restart the bridge and the page picks it up on reconnect. Keyboard-only play, with no
+bridge, uses the built-in 150 ms.
+
 Each gesture reaches the game as one JSON message,
 `{"move": "JUMP", "key": "up", "t": 15180.5}`, with `up`/`down`/`left`/`right` sent as
 `JUMP`/`DUCK`/`LEFT`/`RIGHT`. Use `--ws-port` to change the port, and

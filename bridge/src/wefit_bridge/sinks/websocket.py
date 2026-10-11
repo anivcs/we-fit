@@ -1,15 +1,18 @@
 """Serves gestures to the browser game over WebSocket.
 
-The game connects with ?controller=ws://localhost:8765 and receives one JSON message per
-gesture, e.g. {"move": "JUMP", "key": "up", "t": 15180.5}.
+The game connects with ?controller=ws://localhost:8765. It first receives one settings
+message, {"type": "settings", "jump_buffer_ms": 150.0} (from [game] in tuning.toml), then
+one JSON message per gesture, e.g. {"move": "JUMP", "key": "up", "t": 15180.5}.
 """
 
 import json
 import logging
 
 from websockets.asyncio.server import Server, ServerConnection, broadcast, serve
+from websockets.exceptions import ConnectionClosed
 
 from ..events import KeyEvent
+from ..tuning import GameConfig
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ class WebSocketSink:
         self.host = host
         self.port = port
         self.clients: set[ServerConnection] = set()
+        self.game = GameConfig()
         self._server: Server | None = None
         # Called when the game page closes its connection; run() points this at the latency summary
         self.on_game_exit = None
@@ -45,13 +49,24 @@ class WebSocketSink:
         self.port = self._server.sockets[0].getsockname()[1]
         log.info("game WebSocket listening on ws://%s:%d", self.host, self.port)
 
+    def configure_game(self, game: GameConfig) -> None:
+        """Settings sent to every game page that connects. Called by build_pipeline()."""
+        self.game = game
+
+    def _settings_message(self) -> str:
+        return json.dumps({"type": "settings", "jump_buffer_ms": self.game.jump_buffer_ms})
+
     async def _handle(self, connection: ServerConnection) -> None:
-        self.clients.add(connection)
         log.info("game connected from %s:%d", *connection.remote_address[:2])
         try:
+            # Settings go out before the client joins `clients`, so no move can arrive ahead of them
+            await connection.send(self._settings_message())
+            self.clients.add(connection)
             # The game never sends anything we act on; just keep the connection open
             async for _ in connection:
                 pass
+        except ConnectionClosed:
+            pass
         finally:
             self.clients.discard(connection)
             log.info("game disconnected")

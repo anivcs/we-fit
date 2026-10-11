@@ -13,11 +13,67 @@ from wefit_bridge.transport.fake import FakeTransport
 
 
 async def receive(ws, count, timeout=5.0):
+    """The next `count` gesture messages. The settings message sent on connect is skipped."""
     messages = []
     async with asyncio.timeout(timeout):
         while len(messages) < count:
-            messages.append(json.loads(await ws.recv()))
+            message = json.loads(await ws.recv())
+            if message.get("type") != "settings":
+                messages.append(message)
     return messages
+
+
+async def first_message(sink):
+    async with connect(f"ws://127.0.0.1:{sink.port}") as ws:
+        async with asyncio.timeout(5):
+            return json.loads(await ws.recv())
+
+
+def test_settings_are_the_first_message_with_the_default_buffer():
+    async def main():
+        sink = WebSocketSink(port=0)
+        await sink.start()
+        try:
+            return await first_message(sink)
+        finally:
+            sink.close()
+
+    assert asyncio.run(main()) == {"type": "settings", "jump_buffer_ms": 150.0}
+
+
+def test_settings_come_from_tuning_toml_through_the_pipeline(tmp_path, monkeypatch):
+    (tmp_path / "tuning.toml").write_text("[game]\njump_buffer_ms = 220\n")
+    monkeypatch.chdir(tmp_path)
+    sink = WebSocketSink(port=0)
+    build_pipeline(Config(transport="usb"), sinks=[sink], on_startup=lambda e: None)
+
+    async def main():
+        await sink.start()
+        try:
+            return await first_message(sink)
+        finally:
+            sink.close()
+
+    assert asyncio.run(main()) == {"type": "settings", "jump_buffer_ms": 220.0}
+
+
+def test_moves_follow_the_settings_message():
+    async def main():
+        sink = WebSocketSink(port=0)
+        await sink.start()
+        try:
+            async with connect(f"ws://127.0.0.1:{sink.port}") as ws:
+                async with asyncio.timeout(2):
+                    while not sink.clients:
+                        await asyncio.sleep(0.01)
+                sink.emit(KeyEvent("up", True, 1.0))
+                return [json.loads(await ws.recv()), json.loads(await ws.recv())]
+        finally:
+            sink.close()
+
+    settings, move = asyncio.run(main())
+    assert settings["type"] == "settings"
+    assert move["move"] == "JUMP"
 
 
 def test_sends_presses_as_game_moves_and_skips_releases():

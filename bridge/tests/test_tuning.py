@@ -1,7 +1,15 @@
 import pytest
 
 from wefit_bridge.gestures import GestureConfig
-from wefit_bridge.tuning import FILENAME, PROFILES, REPO_ROOT, TuningError, load_tuning
+from wefit_bridge.tuning import (
+    FILENAME,
+    PROFILES,
+    REPO_ROOT,
+    GameConfig,
+    TuningError,
+    load,
+    load_tuning,
+)
 
 EXAMPLE = """
 [orientation]
@@ -71,3 +79,36 @@ def test_mistakes_are_reported_with_the_file_name(tmp_path, text, message):
 @pytest.mark.parametrize("transport", PROFILES)
 def test_the_checked_in_tuning_file_is_valid(transport):
     load_tuning(transport, REPO_ROOT / FILENAME)
+
+
+def test_game_settings_are_read_and_shared_by_both_transports(tmp_path):
+    path = write(tmp_path, "[game]\njump_buffer_ms = 220\n")
+    assert load("usb", path).game == GameConfig(jump_buffer_ms=220.0)
+    assert load("ble", path).game == GameConfig(jump_buffer_ms=220.0)
+
+
+def test_game_settings_default_when_missing(tmp_path):
+    assert load("usb", write(tmp_path, "")).game == GameConfig()
+    assert GameConfig().jump_buffer_ms == 150.0
+
+
+def test_zero_turns_the_jump_buffer_off(tmp_path):
+    assert load("usb", write(tmp_path, "[game]\njump_buffer_ms = 0\n")).game.jump_buffer_ms == 0
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("[game]\njump_buffer = 100", "unknown setting jump_buffer"),
+        ("[game]\njump_buffer_ms = -1", "0 or more"),
+        ("[game]\njump_buffer_ms = 5000", "1000 or less"),
+        ('[game]\njump_buffer_ms = "150"', "must be a number"),
+    ],
+)
+def test_bad_game_settings_are_reported(tmp_path, text, message):
+    with pytest.raises(TuningError, match=message):
+        load("usb", write(tmp_path, text))
+
+
+def test_the_checked_in_file_sets_the_default_buffer():
+    assert load("usb", REPO_ROOT / FILENAME).game == GameConfig()

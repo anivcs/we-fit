@@ -71,10 +71,10 @@ right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
 
 [ble]   # Bluetooth
 rest_threshold = 1.0
-up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
-down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+up    = { threshold = 17.0, rest_ms = 150, cooldown_ms = 100 }
+down  = { threshold = 9.0, rest_ms = 150, cooldown_ms = 300 }
+left  = { threshold = 5.0, rest_ms = 100, cooldown_ms = 30 }
+right = { threshold = 5.0, rest_ms = 100, cooldown_ms = 30 }
 
 # ---------------------------------------------------------------------------------
 # Ground-referenced mode (--gravity) and the NDOF startup checks.
@@ -90,3 +90,17 @@ mag_min_ut = 20
 mag_max_ut = 80
 still_ms2 = 0.5
 reference_timeout_s = 10
+
+# ---------------------------------------------------------------------------------
+# The browser game. Sent to the game page each time it connects to the bridge, so
+# edit, save, restart the bridge, and the page picks it up when it reconnects (no
+# page reload). With --transport fake this file is ignored and the default (150) is
+# sent. Keyboard-only play, with no bridge, uses the game's built-in default (150).
+#
+# jump_buffer_ms  ms, 0 to 1000. A jump pressed up to this long before you land is
+#                 remembered and runs the moment you touch down. Higher = more
+#                 forgiving of early jumps, but a jump you did not mean can fire on
+#                 landing. 0 turns the buffer off. Typical 100 to 200.
+# ---------------------------------------------------------------------------------
+[game]
+jump_buffer_ms = 150
