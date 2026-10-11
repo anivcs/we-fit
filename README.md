@@ -229,6 +229,14 @@ Trains vary in length and may have a front ramp. Jump from another train to reac
 without a front ramp; hitting its front without enough height ends the run. Trains
 have no rear ramp: jump off the back or run off and fall under gravity.
 
+Moving-train phases begin at 20,000 points, then appear every 400–500 m and last
+200–300 m. One or two trains are typical; a rare three-train wave staggers trains
+farther apart across the tracks to allow jumps and lane changes. Their speeds vary
+from 8 to 42 m/s. Moving trains have no onramps, so avoid them or jump onto their
+roofs. Static obstacles are kept off active train lanes for 50 m before and after
+each phase. A moving-train impact throws the player toward the camera before the
+one-second fall animation.
+
 Each gesture reaches the game as one JSON message,
 `{"move": "JUMP", "key": "up", "t": 15180.5}`, with `up`/`down`/`left`/`right` sent as
 `JUMP`/`DUCK`/`LEFT`/`RIGHT`. Use `--ws-port` to change the port, and
