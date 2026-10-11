@@ -6,6 +6,8 @@
 bleak>=3.0          # Bluetooth LE
 pyserial>=3.5       # USB serial
 websockets>=13      # websocket sink (serves moves to the browser game)
+numpy>=1.26         # latency log and stats
+matplotlib>=3.8     # latency report charts (python report.py)
 pynput>=1.7         # keyboard sink (presses real arrow keys)
 pytest>=8           # checks: python check.py
 platformio>=6.1     # build and flash the ESP32 firmware

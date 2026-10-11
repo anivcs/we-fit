@@ -11,10 +11,11 @@
 import asyncio
 import queue
 import threading
-import time
 
+from .clock import now
 from .config import Config
 from .events import KEYS, KeyEvent
+from .latency import make_tracker
 from .pipeline import build_pipeline, run
 from .transport import make_transport
 
@@ -63,7 +64,9 @@ class Controller:
         def runner():
             loop = asyncio.new_event_loop()
             self._loop = loop
-            self._task = loop.create_task(run(make_transport(self._config), self._pipeline))
+            transport = make_transport(self._config)
+            tracker = make_tracker(self._config, transport)
+            self._task = loop.create_task(run(transport, self._pipeline, tracker=tracker))
             ready.set()
             try:
                 loop.run_until_complete(self._task)
@@ -99,7 +102,7 @@ class Controller:
     def reset(self) -> None:
         """Call at the start of each round."""
         if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._pipeline.reset, time.monotonic())
+            self._loop.call_soon_threadsafe(self._pipeline.reset, now())
 
     def __enter__(self) -> "Controller":
         self.start()

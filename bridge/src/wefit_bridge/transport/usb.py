@@ -7,7 +7,8 @@ from collections.abc import AsyncIterator
 import serial
 from serial.tools import list_ports
 
-from ..protocol import SERIAL_BAUD, Sample, parse_sample_line
+from ..clock import now
+from ..protocol import SERIAL_BAUD, SERIAL_PREFIX, Sample, parse_sample_line
 
 log = logging.getLogger(__name__)
 
@@ -30,11 +31,18 @@ def describe_ports() -> list[str]:
     return [f"{p.device}: {p.description}" for p in list_ports.comports()]
 
 
+def _read_line(conn) -> tuple[bytes, float]:
+    # Stamped on the reader thread, before the hop back to the event loop
+    raw = conn.readline()
+    return raw, now()
+
+
 class UsbTransport:
     def __init__(self, port: str | None = None, baud: int = SERIAL_BAUD, retry_delay_s: float = 1.0):
         self.port = port
         self.baud = baud
         self.retry_delay_s = retry_delay_s
+        self.corrupt = 0  # sample lines that failed to parse
 
     async def samples(self) -> AsyncIterator[Sample]:
         while True:
@@ -49,10 +57,13 @@ class UsbTransport:
                 with serial.Serial(port, self.baud, timeout=0.5) as conn:
                     log.info("controller connected on %s", port)
                     while True:
-                        raw = await asyncio.to_thread(conn.readline)
-                        sample = parse_sample_line(raw.decode("ascii", errors="ignore"))
+                        raw, rx = await asyncio.to_thread(_read_line, conn)
+                        line = raw.decode("ascii", errors="ignore")
+                        sample = parse_sample_line(line, rx)
                         if sample is not None:
                             yield sample
+                        elif line.startswith(SERIAL_PREFIX):
+                            self.corrupt += 1
             except serial.SerialException as e:
                 log.warning("USB error on %s: %s", port, e)
 

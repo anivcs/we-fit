@@ -14,6 +14,7 @@ Detailed context lives next to this file:
 - [docs/architecture.md](docs/architecture.md) — components, data flow, repo layout
 - [docs/protocol.md](docs/protocol.md) — BLE and USB wire formats (source of truth)
 - [docs/build-plan.md](docs/build-plan.md) — milestones, open questions
+- [docs/latency-tracking.md](docs/latency-tracking.md) — latency logging, metrics, report; phases 1-2 planned
 
 User-facing setup instructions are in the root `README.md`. Keep it in step with the
 commands below.
@@ -55,6 +56,7 @@ commands below.
 | `transport/usb.py`, `transport/ble.py` | Written. **Never run against a real board.** |
 | `firmware/` | **Compiles** (`pio run`, 87.6% of flash). **Never flashed or run.** |
 | `bridge/tests/test_setup.py` | Hardware checks. Verified only in their failing state (no board attached), plus "Bluetooth is enabled" passing. |
+| `latency/` (log, stats, `report.py`) | Working against `fake`. **Never run against a real board**, including the clock checks. |
 | `firstiterationsubwaysurfers/*.ino` | Teammates' Arduino IDE prototype; source of the gesture logic. |
 
 `.venv` is Python 3.11.0 with everything from `requirements.txt` installed.
@@ -82,6 +84,8 @@ python -m wefit_bridge --transport fake      # scripted gestures, no hardware
 python -m wefit_bridge --scan                # list USB ports and WeFit BLE devices
 python -m wefit_bridge --transport usb --sink keyboard   # press real arrow keys
 python examples/game_stub.py usb|ble|fake
+python -m wefit_bridge --transport usb --no-latency-log  # skip logs/raw/ and the exit summary
+python report.py [usb|ble|fake|<file>]       # latency report -> logs/reports/
 
 pio run -d firmware                          # build
 pio run -d firmware -t upload                # flash
@@ -102,6 +106,10 @@ In this environment `pio` is not on PATH unless the venv is activated; use
   marked `usb` or `bluetooth`, fail when the hardware is absent, and print one
   sentence saying what to do (`pytest.fail(..., pytrace=False)`).
 - Firmware loop is scheduled with `millis()`; no `delay()` in the steady state.
+- All bridge timing uses `clock.now` (`time.perf_counter`). Do not use `time.monotonic`:
+  it ticks every 15.6 ms on Windows before Python 3.13.
+- Latency logs: `logs/raw/` is git-ignored, `logs/reports/` is committed. Metric names
+  live in `latency/metrics.py` (`METRICS`, `Summary`); reuse them, do not redefine.
 - Bridge core (`gestures`, `keys`, `Pipeline`) is synchronous and takes `now` as an
   argument. Bridge I/O is asyncio. `Controller` runs that loop on one background
   thread so a blocking game loop can poll it.

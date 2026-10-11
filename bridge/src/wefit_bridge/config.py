@@ -23,6 +23,7 @@ class Config:
     sinks: list[str] = field(default_factory=lambda: ["console"])
     websocket_host: str = "127.0.0.1"
     websocket_port: int = 8765
+    latency_log: bool = True  # record sample timing to logs/raw/
     # None: read tuning.toml for the transport in use (see tuning.py)
     gestures: GestureConfig | None = None
 
@@ -41,6 +42,8 @@ def load_config(path: str | Path) -> Config:
     ws = raw.get("websocket", {})
     config.websocket_host = ws.get("host", config.websocket_host)
     config.websocket_port = int(ws.get("port", config.websocket_port))
+
+    config.latency_log = bool(raw.get("latency", {}).get("enabled", config.latency_log))
 
     ble = raw.get("ble", {})
     config.device_name = ble.get("name", config.device_name)

@@ -13,4 +13,4 @@
 #define SERIAL_STREAM 1
 
 // Reported in the info characteristic
-#define FW_VERSION 1
+#define FW_VERSION 2

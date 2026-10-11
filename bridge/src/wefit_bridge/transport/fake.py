@@ -1,10 +1,10 @@
 """Scripted controller for running the pipeline without hardware."""
 
 import asyncio
-import time
 from collections.abc import AsyncIterator
 
-from ..protocol import Sample, decode_sample, encode_sample
+from ..clock import now
+from ..protocol import SEQ_MODULO, T_MS_MODULO, Sample, decode_sample, encode_sample
 
 # Acceleration pulse (m/s^2) for each gesture, in the order they are played
 SCRIPT = {
@@ -25,10 +25,10 @@ class FakeTransport:
         period = 1 / self.rate_hz
         pulses = list(SCRIPT.values())
         seq = 0
-        start = time.monotonic()
+        start = now()
         while True:
             # Wall clock, not seq * period: asyncio.sleep is coarse on Windows
-            t = time.monotonic() - start
+            t = now() - start
             cycle, offset = divmod(t, self.gesture_every_s)
             # Quiet for the first cycle, then one pulse at the start of each
             if cycle >= 1 and offset < self.pulse_s:
@@ -37,12 +37,12 @@ class FakeTransport:
                 accel = (0.0, 0.0, 0.0)
 
             sample = Sample(
-                seq=seq & 0xFFFF,
-                t_ms=int(t * 1000) & 0xFFFF,
+                seq=seq % SEQ_MODULO,
+                t_ms=int(t * 1000) % T_MS_MODULO,
                 accel=accel,
                 quat=(1.0, 0.0, 0.0, 0.0),
             )
             # Round-trip through the wire format so the fake exercises the real decoder
-            yield decode_sample(encode_sample(sample))
+            yield decode_sample(encode_sample(sample), rx=now())
             seq += 1
             await asyncio.sleep(period)

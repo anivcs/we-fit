@@ -19,7 +19,7 @@
 // Notified on SAMPLE_CHAR_UUID. 20 bytes so it fits the default BLE MTU.
 struct __attribute__((packed)) SamplePacket {
   uint16_t seq;       // increments per sample, wraps
-  uint16_t t_ms;      // millis() truncated, wraps every ~65 s
+  uint16_t t_ms;      // millis() before the sensor read, truncated, wraps every ~65 s
   int16_t accel[3];   // linear acceleration x, y, z (gravity removed)
   int16_t quat[4];    // orientation w, x, y, z
   uint8_t calib;      // sys<<6 | gyro<<4 | accel<<2 | mag

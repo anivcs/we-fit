@@ -11,3 +11,6 @@ frontend/node_modules/
 frontend/dist/
 
 firmware/.pio/
+
+# Latency logs: raw sessions stay local, reports are committed
+logs/raw/

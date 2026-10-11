@@ -2,9 +2,9 @@
 
 import asyncio
 import logging
-import time
 from collections.abc import Callable, Iterable
 
+from .clock import now as default_clock
 from .config import Config
 from .gestures import GestureDetector
 from .keys import KeyState
@@ -28,11 +28,13 @@ class Pipeline:
         # Orientation captured at the last reset; unused by gestures today
         self.reference_quat: tuple[float, float, float, float] | None = None
 
-    def on_sample(self, sample: Sample, now: float) -> None:
+    def on_sample(self, sample: Sample, now: float) -> str | None:
+        """Returns the gesture this sample fired, if any."""
         self.last_sample = sample
         gesture = self.detector.update(sample.accel, now)
         if gesture is not None:
             self._emit(self.keys.press(gesture, now))
+        return gesture
 
     def tick(self, now: float) -> None:
         self._emit(self.keys.tick(now))
@@ -65,8 +67,16 @@ def build_pipeline(config: Config, sinks: Iterable[Sink] | None = None) -> Pipel
     )
 
 
-async def run(transport, pipeline: Pipeline, clock: Callable[[], float] = time.monotonic) -> None:
-    """Feed samples from the transport into the pipeline until cancelled."""
+async def run(
+    transport,
+    pipeline: Pipeline,
+    clock: Callable[[], float] = default_clock,
+    tracker=None,
+) -> None:
+    """Feed samples from the transport into the pipeline until cancelled.
+
+    `tracker` is a latency.LatencyTracker, or None to record nothing.
+    """
 
     async def ticker():
         # Runs even when no samples arrive, so a lost link cannot leave a key down
@@ -78,11 +88,18 @@ async def run(transport, pipeline: Pipeline, clock: Callable[[], float] = time.m
         start = getattr(sink, "start", None)
         if start is not None:
             await start()
+        if tracker is not None and hasattr(sink, "on_game_exit"):
+            sink.on_game_exit = tracker.log_summary
 
     tick_task = asyncio.create_task(ticker())
     try:
         async for sample in transport.samples():
-            pipeline.on_sample(sample, clock())
+            consumed = clock()
+            gesture = pipeline.on_sample(sample, consumed)
+            if tracker is not None:
+                tracker.record(sample, consumed, clock(), gesture)
     finally:
         tick_task.cancel()
         pipeline.close(clock())
+        if tracker is not None:
+            tracker.close()

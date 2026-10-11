@@ -1,7 +1,7 @@
 """BLE wire format. Must match .claude/docs/protocol.md and firmware/include/protocol.h."""
 
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 PROTOCOL_VERSION = 1
 
@@ -14,6 +14,9 @@ ACCEL_SCALE = 100.0  # 1 LSB = 0.01 m/s^2
 QUAT_SCALE = 16384.0  # 1 LSB = 1/16384
 
 SAMPLE = struct.Struct("<HH3h4hBB")  # 20 bytes
+# seq and t_ms are both u16 on the wire; unwrap them with these
+SEQ_MODULO = 1 << 16
+T_MS_MODULO = 1 << 16
 INFO = struct.Struct("<BHH")  # 5 bytes
 
 
@@ -25,6 +28,8 @@ class Sample:
     quat: tuple[float, float, float, float]  # w, x, y, z
     calib: int = 0
     flags: int = 0
+    # Host clock (clock.now) when the bytes arrived; 0.0 = not stamped. Not on the wire.
+    rx: float = field(default=0.0, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +39,7 @@ class Info:
     sample_rate_hz: int
 
 
-def decode_sample(data: bytes) -> Sample:
+def decode_sample(data: bytes, rx: float = 0.0) -> Sample:
     if len(data) != SAMPLE.size:
         raise ValueError(f"sample must be {SAMPLE.size} bytes, got {len(data)}")
     seq, t_ms, ax, ay, az, qw, qx, qy, qz, calib, flags = SAMPLE.unpack(data)
@@ -45,13 +50,14 @@ def decode_sample(data: bytes) -> Sample:
         quat=(qw / QUAT_SCALE, qx / QUAT_SCALE, qy / QUAT_SCALE, qz / QUAT_SCALE),
         calib=calib,
         flags=flags,
+        rx=rx,
     )
 
 
 def encode_sample(sample: Sample) -> bytes:
     return SAMPLE.pack(
-        sample.seq & 0xFFFF,
-        sample.t_ms & 0xFFFF,
+        sample.seq % SEQ_MODULO,
+        sample.t_ms % T_MS_MODULO,
         *(round(v * ACCEL_SCALE) for v in sample.accel),
         *(round(v * QUAT_SCALE) for v in sample.quat),
         sample.calib,
@@ -63,7 +69,7 @@ SERIAL_PREFIX = "S,"
 SERIAL_BAUD = 115200
 
 
-def parse_sample_line(line: str) -> Sample | None:
+def parse_sample_line(line: str, rx: float = 0.0) -> Sample | None:
     """Parse one USB serial line: S,seq,t_ms,ax,ay,az,qw,qx,qy,qz,calib (raw integers).
 
     Returns None for anything else, so firmware log lines can share the port.
@@ -81,6 +87,7 @@ def parse_sample_line(line: str) -> Sample | None:
         accel=(ax / ACCEL_SCALE, ay / ACCEL_SCALE, az / ACCEL_SCALE),
         quat=(qw / QUAT_SCALE, qx / QUAT_SCALE, qy / QUAT_SCALE, qz / QUAT_SCALE),
         calib=calib,
+        rx=rx,
     )
 
 
