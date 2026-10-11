@@ -9,9 +9,13 @@ src/wefit_bridge/gestures.py
 src/wefit_bridge/keys.py
 src/wefit_bridge/pipeline.py
 src/wefit_bridge/protocol.py
+<<<<<<< Updated upstream
 src/wefit_bridge/startup.py
 src/wefit_bridge/tuning.py
 src/wefit_bridge/world.py
+=======
+src/wefit_bridge/tuning.py
+>>>>>>> Stashed changes
 src/wefit_bridge.egg-info/PKG-INFO
 src/wefit_bridge.egg-info/SOURCES.txt
 src/wefit_bridge.egg-info/dependency_links.txt
@@ -20,7 +24,10 @@ src/wefit_bridge.egg-info/requires.txt
 src/wefit_bridge.egg-info/top_level.txt
 src/wefit_bridge/latency/__init__.py
 src/wefit_bridge/latency/metrics.py
+<<<<<<< Updated upstream
 src/wefit_bridge/latency/motion.py
+=======
+>>>>>>> Stashed changes
 src/wefit_bridge/latency/recorder.py
 src/wefit_bridge/latency/report.py
 src/wefit_bridge/sinks/__init__.py
