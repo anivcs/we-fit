@@ -30,6 +30,10 @@ export function trainBlocksLaneChange(distance, fromLane, toLane, train, playerH
   );
 }
 
+export function canLandOnTrain(playerY, trainHeight, grounded) {
+  return grounded || playerY >= trainHeight - 0.5;
+}
+
 function rangesOverlap(aMin, aMax, bMin, bMax) {
   return aMin < bMax && bMin < aMax;
 }

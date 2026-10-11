@@ -4,6 +4,7 @@ import { createRng } from '../src/rng.js';
 import {
   OBSTACLE,
   OBSTACLE_SPECS,
+  canLandOnTrain,
   generateRow,
   nextRowGap,
   trainBlocksLaneChange,
@@ -85,6 +86,12 @@ describe('track generation', () => {
     expect(trainBlocksLaneChange(19.5, 1, 0, train, 0.35)).toBe(false);
     expect(trainBlocksLaneChange(25, 0, 0, train, 0.35)).toBe(false);
     expect(trainBlocksLaneChange(25, 1, 2, train, 0.35)).toBe(false);
+  });
+
+  it('requires a near-roof jump height before landing on a train from the side', () => {
+    expect(canLandOnTrain(2.69, 3.2, false)).toBe(false);
+    expect(canLandOnTrain(2.7, 3.2, false)).toBe(true);
+    expect(canLandOnTrain(0, 3.2, true)).toBe(true);
   });
 
   it('leaves room after a train before the next row', () => {

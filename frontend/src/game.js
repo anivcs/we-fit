@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 
+import deathSoundUrl from './assets/death.mp3?url';
 import { MOVES } from './moves.js';
 import { createRng } from './rng.js';
 import {
   LANES,
   OBSTACLE,
   OBSTACLE_SPECS,
+  canLandOnTrain,
   difficultyAt,
   generateRow,
   nextRowGap,
@@ -81,6 +83,7 @@ export class Game {
     this.lastTime = null;
     this.elapsed = 0;
     this.deathAnimation = null;
+    this.deathAudio = new Audio(deathSoundUrl);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -364,6 +367,10 @@ export class Game {
 
   endRun(train = null) {
     if (this.state === 'over' || this.state === 'dying') return;
+    this.deathAudio.currentTime = 0;
+    const playback = this.deathAudio.play();
+    if (playback) playback.catch((error) => console.warn('Unable to play death sound:', error));
+
     const p = this.player;
     const side = train ? Math.sign(LANES[train.lane] - p.x) : 0;
     this.deathAnimation = {
@@ -405,7 +412,7 @@ export class Game {
     const step = LANE_CHANGE_SPEED * dt;
     p.x = Math.abs(targetX - p.x) <= step ? targetX : p.x + Math.sign(targetX - p.x) * step;
 
-    const groundY = this.groundHeightAt(this.distance, p.x);
+    const groundY = this.groundHeightAt(this.distance, p.x, p.y, p.grounded);
     if (p.grounded && groundY < p.y) p.grounded = false;
     if (p.grounded) {
       p.y = groundY;
@@ -450,13 +457,15 @@ export class Game {
     });
   }
 
-  groundHeightAt(distance, x) {
+  groundHeightAt(distance, x, playerY = 0, grounded = true) {
     return this.obstacles.reduce((height, obstacle) => {
       if (
         obstacle.type !== OBSTACLE.TRAIN ||
         Math.abs(x - LANES[obstacle.lane]) >= PLAYER_HALF_WIDTH + obstacle.spec.width / 2
       ) return height;
-      return Math.max(height, trainSurfaceHeight(distance - obstacle.at, obstacle.spec));
+      const surface = trainSurfaceHeight(distance - obstacle.at, obstacle.spec);
+      if (!canLandOnTrain(playerY, surface, grounded)) return height;
+      return Math.max(height, surface);
     }, 0);
   }
 
@@ -531,11 +540,11 @@ export class Game {
     this.playerLegs[0].rotation.x = stride;
     this.playerLegs[1].rotation.x = -stride;
     this.playerShadow.position.x = p.x;
-    this.playerShadow.position.y = this.groundHeightAt(this.distance, p.x) + 0.01;
+    this.playerShadow.position.y = this.groundHeightAt(this.distance, p.x, p.y, p.grounded) + 0.01;
     this.playerShadow.scale.setScalar(Math.max(0.4, 1 - p.y * 0.25));
 
     const cameraFollow = 1 - Math.exp(-CAMERA_FOLLOW_SPEED * dt);
-    const onTrain = this.groundHeightAt(this.distance, p.x) > 0;
+    const onTrain = this.groundHeightAt(this.distance, p.x, p.y, p.grounded) > 0;
     const cameraTargetY = !p.grounded || onTrain ? p.y : 0;
     this.cameraFollowY += (cameraTargetY - this.cameraFollowY) * cameraFollow;
     this.camera.position.x += (p.x * 0.5 - this.camera.position.x) * 0.1;
