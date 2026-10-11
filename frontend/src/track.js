@@ -17,9 +17,51 @@ const DIFFICULTY_RAMP_METERS = 2500;
 const MIN_TRAIN_DEPTH = 10;
 const MAX_TRAIN_DEPTH = 60;
 const RAMPLESS_TRAIN_CHANCE = 0.4;
+const MOVING_TRAIN_PHASE_MIN_LENGTH = 200;
+const MOVING_TRAIN_PHASE_MAX_LENGTH = 300;
+const MOVING_TRAIN_THREE_LANE_CHANCE = 0.03;
+const MOVING_TRAIN_TWO_LANE_CHANCE = 0.45;
+const MOVING_TRAIN_SPEED_MIN = 8;
+const MOVING_TRAIN_SPEED_MAX = 42;
+export const FIRST_MOVING_TRAIN_SCORE = 20000;
+export const MOVING_TRAIN_SPAWN_AHEAD = 60;
+
+export function nextMovingTrainPhaseStart(rng, phaseStart) {
+  return phaseStart + 400 + rng() * 100;
+}
 
 export function trainHasFrontRamp(rng) {
   return rng() >= RAMPLESS_TRAIN_CHANCE;
+}
+
+export function generateMovingTrainPhase(rng, start) {
+  const duration = MOVING_TRAIN_PHASE_MIN_LENGTH +
+    rng() * (MOVING_TRAIN_PHASE_MAX_LENGTH - MOVING_TRAIN_PHASE_MIN_LENGTH);
+  const countRoll = rng();
+  const trainCount = countRoll < MOVING_TRAIN_THREE_LANE_CHANCE
+    ? 3
+    : countRoll < MOVING_TRAIN_THREE_LANE_CHANCE + MOVING_TRAIN_TWO_LANE_CHANCE ? 2 : 1;
+  const lanes = shuffledLanes(rng).slice(0, trainCount);
+  const end = start + duration;
+  const convoys = [];
+
+  for (let at = start + 10; at + MOVING_TRAIN_SPAWN_AHEAD < end; at += 90 + rng() * 10) {
+    const trains = lanes.map((lane, index) => ({
+      lane,
+      depth: 10 + rng() * 22,
+      frontRamp: false,
+      speed: MOVING_TRAIN_SPEED_MIN + rng() * (MOVING_TRAIN_SPEED_MAX - MOVING_TRAIN_SPEED_MIN),
+      offset: index * 80,
+    }));
+    convoys.push({ at, trains });
+  }
+
+  return { start, end, lanes, convoys };
+}
+
+export function movingTrainPhaseBlocksObstacle(phase, at, lane, depth = 0) {
+  return phase.lanes.includes(lane) &&
+    rangesOverlap(at, at + depth, phase.start - 50, phase.end + 50);
 }
 
 export function trainBlocksLaneChange(distance, fromLane, toLane, train, playerHalfDepth) {

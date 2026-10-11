@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import { createRng } from '../src/rng.js';
 import {
+  FIRST_MOVING_TRAIN_SCORE,
   OBSTACLE,
   OBSTACLE_SPECS,
   canLandOnTrain,
   generateRow,
+  generateMovingTrainPhase,
+  isOnTrainRoof,
+  movingTrainPhaseBlocksObstacle,
+  nextMovingTrainPhaseStart,
   nextRowGap,
   trainBlocksLaneChange,
   trainHasFrontRamp,
@@ -88,10 +93,57 @@ describe('track generation', () => {
     expect(trainBlocksLaneChange(25, 1, 2, train, 0.35)).toBe(false);
   });
 
-  it('requires a near-roof jump height before landing on a train from the side', () => {
-    expect(canLandOnTrain(2.69, 3.2, false)).toBe(false);
-    expect(canLandOnTrain(2.7, 3.2, false)).toBe(true);
-    expect(canLandOnTrain(0, 3.2, true)).toBe(true);
+  it('recognizes train-roof lane changes without treating them as ground impacts', () => {
+    expect(isOnTrainRoof(3.2, 3.2, true)).toBe(true);
+    expect(isOnTrainRoof(3.2, 3.2, false)).toBe(false);
+    expect(isOnTrainRoof(0, 3.2, true)).toBe(false);
+  });
+
+  it('generates moving-train phases with randomized duration and safe convoy lanes', () => {
+    const rng = createRng(734);
+    let threeTrainPhases = 0;
+    for (let i = 0; i < 1000; i++) {
+      const phase = generateMovingTrainPhase(rng, 3000);
+      expect(phase.start).toBe(3000);
+      expect(phase.end - phase.start).toBeGreaterThanOrEqual(200);
+      expect(phase.end - phase.start).toBeLessThan(300);
+      expect(phase.lanes.length).toBeGreaterThanOrEqual(1);
+      expect(phase.lanes.length).toBeLessThanOrEqual(3);
+      expect(new Set(phase.lanes).size).toBe(phase.lanes.length);
+      if (phase.lanes.length === 3) threeTrainPhases++;
+      expect(phase.convoys.length).toBeGreaterThan(0);
+      for (const convoy of phase.convoys) {
+        expect(convoy.trains.length).toBe(phase.lanes.length);
+        expect(convoy.trains.map(({ lane }) => lane)).toEqual(phase.lanes);
+        for (const { speed, offset, frontRamp } of convoy.trains) {
+          expect(frontRamp).toBe(false);
+          expect(speed).toBeGreaterThanOrEqual(8);
+          expect(speed).toBeLessThan(42);
+          expect(offset).toBeGreaterThanOrEqual(0);
+        }
+      }
+      const protectedLane = phase.lanes[0];
+      const unprotectedLane = [0, 1, 2].find((lane) => !phase.lanes.includes(lane));
+      expect(movingTrainPhaseBlocksObstacle(phase, phase.start - 50, protectedLane, 0.6)).toBe(true);
+      expect(movingTrainPhaseBlocksObstacle(phase, phase.end + 49, protectedLane, 0.6)).toBe(true);
+      expect(movingTrainPhaseBlocksObstacle(phase, phase.end + 50, protectedLane, 0.6)).toBe(false);
+      expect(movingTrainPhaseBlocksObstacle(phase, phase.start - 50.7, protectedLane, 0.6)).toBe(false);
+      expect(movingTrainPhaseBlocksObstacle(phase, phase.start, unprotectedLane, 1)).toBe(false);
+    }
+    expect(threeTrainPhases).toBeGreaterThan(0);
+    expect(threeTrainPhases).toBeLessThan(60);
+  });
+
+  it('starts moving trains at 20,000 score and schedules phases 400 to 500 meters apart', () => {
+    expect(FIRST_MOVING_TRAIN_SCORE).toBe(20000);
+    const rng = createRng(835);
+    let previousStart = 3000;
+    for (let i = 0; i < 100; i++) {
+      const nextStart = nextMovingTrainPhaseStart(rng, previousStart);
+      expect(nextStart - previousStart).toBeGreaterThanOrEqual(400);
+      expect(nextStart - previousStart).toBeLessThan(500);
+      previousStart = nextStart;
+    }
   });
 
   it('leaves room after a train before the next row', () => {
