@@ -1,9 +1,13 @@
 bleak>=3.0
 pyserial>=3.5
 websockets>=13
+numpy>=1.26
 
 [dev]
 pytest>=8
 
 [keyboard]
 pynput>=1.7
+
+[report]
+matplotlib>=3.8

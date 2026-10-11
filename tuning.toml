@@ -74,15 +74,15 @@ up    = "+z"
 rest_threshold = 1.0
 up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
 down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
-left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
-right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 400, queue = 2, queue_ms = 400 }
+right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 400, queue = 2, queue_ms = 400 }
 
 [ble]   # Bluetooth
 rest_threshold = 1.0
-up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
-down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
-left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
-right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+up    = { threshold = 17.0, rest_ms = 150, cooldown_ms = 500, queue = 1, queue_ms = 400 }
+down  = { threshold = 12.3, rest_ms = 150, cooldown_ms = 500, queue = 1, queue_ms = 400 }
+left  = { threshold = 6.5, rest_ms = 10, cooldown_ms = 500, queue = 1, queue_ms = 100 }
+right = { threshold = 6.5, rest_ms = 10, cooldown_ms = 500, queue = 1, queue_ms = 100 }
 
 # ---------------------------------------------------------------------------------
 # Ground-referenced mode (--gravity) and the NDOF startup checks.
