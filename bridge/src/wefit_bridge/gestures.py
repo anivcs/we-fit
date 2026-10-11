@@ -8,10 +8,13 @@ Every direction has its own threshold and delays, so a jump and a lane change ca
 chained without waiting:
   - cooldown applies per direction (a second "up" waits, a "right" right after "up" does not)
   - the rest gate applies per axis (see GestureDetector), so "up" never blocks "left"/"right"
+  - with queue_size > 0 a deliberate repeat (a fresh spike in the direction just fired) skips
+    the rest gate, and if the cooldown blocks it, it is queued and fires when the cooldown ends
 
 The numbers people tune live in tuning.toml at the repo root, not here.
 """
 
+from collections import deque
 from dataclasses import dataclass, field
 
 # Left/right move along X, up/down along Z
@@ -42,6 +45,8 @@ class DirectionConfig:
     threshold: float = 4.0  # m/s^2
     rest_s: float = 0.15  # stillness its axis needs before this direction can fire
     cooldown_s: float = 0.5  # minimum time between two gestures in this direction
+    queue_size: int = 0  # repeats held back by the cooldown that wait their turn; 0 = drop them
+    queue_s: float = 0.4  # longest a held repeat waits before it is discarded as stale
 
 
 @dataclass(slots=True)
@@ -77,6 +82,9 @@ class GestureDetector:
         # Longest stillness each axis has had since it last fired
         self._rested = {"x": float("inf"), "z": float("inf")}
         self._rest_start: dict[str, float | None] = {"x": None, "z": None}
+        self._fired = {"x": None, "z": None}  # last direction fired on each axis
+        self._prev: str | None = None  # direction detected on the previous sample
+        self._pending: dict[str, deque[float]] = {k: deque() for k in AXIS}
 
     def update(
         self, accel: tuple[float, float, float], now: float, oriented: bool = False
@@ -109,18 +117,54 @@ class GestureDetector:
             gesture = "right"
         elif x < -cfg.left.threshold and ax > ay and ax > az:
             gesture = "left"
+        edge = gesture is not None and gesture != self._prev  # a new spike, not the same one
+        self._prev = gesture
 
+        released = self._release(now)
         if gesture is None:
-            return None
+            return released
         axis = AXIS[gesture]
         direction: DirectionConfig = getattr(cfg, gesture)
-        if (
-            self._rested[axis] < direction.rest_s
-            or now - self._last.get(gesture, float("-inf")) < direction.cooldown_s
-        ):
-            return None
+        # A fresh spike in the direction just fired is a deliberate repeat, not a rebound
+        # (a rebound points the other way), so it need not wait for the axis to rest.
+        repeat = direction.queue_size > 0 and edge and self._fired[axis] == gesture
+        rest_ok = self._rested[axis] >= direction.rest_s or repeat
+        cooled = now - self._last.get(gesture, float("-inf")) >= direction.cooldown_s
+        if not rest_ok:
+            return released
+        if released is not None or not cooled:
+            # Only one gesture per sample, so a fresh spike that lost to a released repeat
+            # waits one sample, even in a direction whose own queue is off.
+            if edge and (direction.queue_size > 0 or cooled):
+                self._enqueue(gesture, direction, now)
+            return released
+        self._fire(gesture, now)
+        return gesture
 
+    def _fire(self, gesture: str, now: float) -> None:
+        axis = AXIS[gesture]
         self._last[gesture] = now
+        self._fired[axis] = gesture
         self._rested[axis] = 0.0
         self._rest_start[axis] = None
-        return gesture
+
+    def _enqueue(self, gesture: str, direction: DirectionConfig, now: float) -> None:
+        pending = self._pending[gesture]
+        if len(pending) < max(direction.queue_size, 1):
+            pending.append(now)
+
+    def _release(self, now: float) -> str | None:
+        """Fire the oldest queued repeat whose cooldown has ended. Stale ones are dropped."""
+        oldest: tuple[float, str] | None = None
+        for gesture, pending in self._pending.items():
+            direction: DirectionConfig = getattr(self.config, gesture)
+            while pending and now - pending[0] > direction.queue_s:
+                pending.popleft()
+            if pending and now - self._last.get(gesture, float("-inf")) >= direction.cooldown_s:
+                if oldest is None or pending[0] < oldest[0]:
+                    oldest = (pending[0], gesture)
+        if oldest is None:
+            return None
+        self._pending[oldest[1]].popleft()
+        self._fire(oldest[1], now)
+        return oldest[1]

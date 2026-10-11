@@ -317,10 +317,10 @@ connection can be tuned separately. Each profile has one row per direction:
 ```toml
 [ble]
 rest_threshold = 1.0
-up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
-down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
 ```
 
 | Setting | Meaning | If the controller... |
@@ -328,6 +328,8 @@ right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
 | `threshold` (m/s²) | Acceleration that counts as this gesture. | ...misses moves: lower it. ...fires by accident: raise it. |
 | `rest_ms` | How long that axis must be still before this direction can fire. It stops the jolt at the end of a jump from reading as a duck. | ...adds a phantom opposite move: raise it. ...misses a quick `up` then `down`: lower it. |
 | `cooldown_ms` | Minimum time between two gestures in this same direction. | ...cannot repeat a move fast enough: lower it. ...double-fires: raise it. |
+| `queue` | How many rapid repeats in this direction are held and fired as soon as the cooldown ends, instead of dropped. A repeat in the same direction also skips the rest wait. `0` = drop them. | ...fast repeats still get lost: raise it. ...moves keep playing after you stop: lower it. |
+| `queue_ms` | How long a held repeat may wait before it is discarded as stale. | ...a burst plays out late: lower it. ...held moves expire before they fire: raise it. |
 | `rest_threshold` (m/s²) | Below this an axis counts as still. One value per profile. | ...stops responding in a shaky hand: raise it. |
 
 The shipped values are the same in both profiles: `up` needs 7.0 m/s² along +Z, and

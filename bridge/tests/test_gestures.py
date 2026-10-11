@@ -172,3 +172,69 @@ def test_leftover_axis_still_blocks_when_dominant():
 def test_bad_orientation_is_rejected(right_axis, up_axis):
     with pytest.raises(ValueError):
         GestureConfig(right_axis=right_axis, up_axis=up_axis)
+
+
+def _queued(queue_s=0.6):
+    d = DirectionConfig(rest_s=0.15, cooldown_s=0.5, queue_size=2, queue_s=queue_s)
+    return GestureDetector(GestureConfig(down=d))
+
+
+DOWN = (0.0, 0.0, -5.0)
+BACK = (0.0, 0.0, 3.0)  # below the up threshold, above rest: the axis never rests
+
+
+def test_rapid_repeats_are_queued_and_fire_after_the_cooldown():
+    detector = _queued()
+    assert detector.update(DOWN, now=0.0) == "down"
+    assert detector.update(BACK, now=0.1) is None
+    assert detector.update(DOWN, now=0.2) is None  # queued
+    assert detector.update(BACK, now=0.3) is None
+    assert detector.update(DOWN, now=0.4) is None  # queued
+    assert detector.update(BACK, now=0.45) is None
+    assert detector.update(BACK, now=0.5) == "down"  # first queued
+    assert detector.update(BACK, now=1.0) == "down"  # second queued
+
+
+def test_queue_is_bounded():
+    detector = _queued(queue_s=2.0)
+    assert detector.update(DOWN, now=0.0) == "down"
+    for t in (0.1, 0.2, 0.3):
+        detector.update(BACK, now=t - 0.05)
+        assert detector.update(DOWN, now=t) is None
+    assert detector.update(BACK, now=0.5) == "down"
+    assert detector.update(BACK, now=1.0) == "down"
+    assert detector.update(BACK, now=1.5) is None  # the third was over the limit
+
+
+def test_stale_queued_repeat_is_dropped():
+    detector = _queued()
+    assert detector.update(DOWN, now=0.0) == "down"
+    detector.update(BACK, now=0.1)
+    assert detector.update(DOWN, now=0.2) is None  # queued
+    assert detector.update(BACK, now=0.9) is None  # older than queue_s
+
+
+def test_queue_off_keeps_the_old_behaviour():
+    detector = GestureDetector()
+    assert detector.update(DOWN, now=0.0) == "down"
+    detector.update(BACK, now=0.1)
+    assert detector.update(DOWN, now=0.2) is None
+    assert detector.update(BACK, now=0.5) is None
+
+
+def test_rebound_is_not_treated_as_a_repeat():
+    detector = _queued()
+    assert detector.update(DOWN, now=0.0) == "down"
+    assert detector.update((0.0, 0.0, 8.0), now=0.1) is None  # opposite spike
+    assert detector.update((0.0, 0.0, 0.0), now=0.6) is None
+
+
+def test_other_direction_is_not_lost_when_a_queued_repeat_fires_in_the_same_sample():
+    d = DirectionConfig(rest_s=0.15, cooldown_s=0.5, queue_size=2, queue_s=0.6)
+    detector = GestureDetector(GestureConfig(down=d))  # left has no queue
+    assert detector.update(DOWN, now=0.0) == "down"
+    detector.update(BACK, now=0.1)
+    assert detector.update(DOWN, now=0.2) is None  # queued
+    detector.update(BACK, now=0.45)
+    assert detector.update((-5.0, 0.0, 0.0), now=0.5) == "down"  # queued down wins the sample
+    assert detector.update(REST, now=0.52) == "left"  # left fires on the next one

@@ -56,6 +56,14 @@ up    = "+z"
 # cooldown_ms  ms, 0 or more. Minimum time between two gestures in this same
 #              direction. Lower = faster repeats. 0 turns the check off.
 #
+# queue        0 or more (whole number). Rapid repeats in this direction that the
+#              cooldown would drop are held and fired as soon as the cooldown ends,
+#              up to this many. 0 = drop them (the old behaviour). A repeat in the same
+#              direction also no longer waits for the axis to rest, so a quick series of
+#              downs is not blocked until you stop.
+# queue_ms     ms, 0 or more. A held repeat older than this is discarded as stale, so a
+#              burst does not play out long after you stopped. Keep it near cooldown_ms.
+#
 # rest_threshold  m/s^2, greater than 0. An axis below this counts as "still".
 #                 Raise it if a shaky hand never re-arms; typical 0.5 to 2.
 #
@@ -64,17 +72,17 @@ up    = "+z"
 
 [usb]   # wired
 rest_threshold = 1.0
-up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
-down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
 
 [ble]   # Bluetooth
 rest_threshold = 1.0
-up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
-down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
-right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
+right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500, queue = 2, queue_ms = 400 }
 
 # ---------------------------------------------------------------------------------
 # Ground-referenced mode (--gravity) and the NDOF startup checks.

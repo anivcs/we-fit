@@ -105,11 +105,13 @@ def load(transport: str, path: str | Path | None = None) -> Tuning:
             default: DirectionConfig = getattr(defaults, key)
             row = profile.get(key, {})
             row_where = f"{where} {key}"
-            _check_names(row, ("threshold", "rest_ms", "cooldown_ms"), row_where)
+            _check_names(row, ("threshold", "rest_ms", "cooldown_ms", "queue", "queue_ms"), row_where)
             directions[key] = DirectionConfig(
                 threshold=_number(row, "threshold", default.threshold, row_where),
                 rest_s=_number(row, "rest_ms", default.rest_s * 1000, row_where) / 1000,
                 cooldown_s=_number(row, "cooldown_ms", default.cooldown_s * 1000, row_where) / 1000,
+                queue_size=int(_number(row, "queue", default.queue_size, row_where)),
+                queue_s=_number(row, "queue_ms", default.queue_s * 1000, row_where) / 1000,
             )
 
         config = GestureConfig(
