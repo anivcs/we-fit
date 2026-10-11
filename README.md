@@ -16,7 +16,8 @@ The ESP32 only sends raw sensor readings. Python decides what counts as a gestur
 
 > **Status:** the Python side passes its tests against a simulated controller, and the
 > firmware compiles. Nobody has run the USB or Bluetooth path against a real board
-> yet. If a step below does not behave as described, that is new information.
+> yet, in either sensor mode. If a step below does not behave as described, that is
+> new information.
 
 ## 1. Install (once per machine)
 
@@ -67,6 +68,16 @@ Wiring: BNO055 `SDA` to GPIO 21, `SCL` to GPIO 22, plus `VIN` and `GND`.
    a stream of lines starting with `S,`. Press `Ctrl+C` to close the monitor.
 
 The same firmware serves both USB and Bluetooth. You do not re-flash to switch.
+
+`pio run -d firmware -t upload` writes only the bootloader, partition table and the
+program. If the build or upload fails oddly after editing `firmware/platformio.ini` or
+changing branches, clear the local build cache and try again:
+
+```powershell
+pio run -d firmware -t clean
+```
+
+(or delete the `firmware/.pio/` folder; it is git-ignored and rebuilt on the next run).
 
 If the laptop does not see the board at all, install the driver for its USB chip:
 CP210x (Silicon Labs) or CH340 (WCH), whichever is printed on the board.
@@ -343,6 +354,45 @@ With the WebSocket sink every gesture arrives, so a chained `up` + `right` reach
 game as two moves. With the keyboard sink, only one key is down at a time, so the first
 key is released as soon as the second is pressed.
 
+## Fusion mode and ground-referenced gestures
+
+Needs firmware version 3: re-flash once with `pio run -d firmware -t upload` (section 2).
+
+| Command | Sensor mode | Directions come from |
+| --- | --- | --- |
+| `python -m wefit_bridge --transport usb` | `fusion_mode` in `tuning.toml` (default `"imu"`) | `[orientation]` in `tuning.toml` |
+| `python -m wefit_bridge --transport usb --gravity` | NDOF, always | gravity, plus one shuffle to the right at startup |
+
+Use `--transport ble` for Bluetooth. Every other flag (`--sink`, `--port`, ...) works
+with both.
+
+**Which sensor mode is used**, highest authority first:
+
+1. `--gravity` on the command line: always NDOF.
+2. `fusion_mode = "imu"` or `"ndof"`, the first setting in [`tuning.toml`](tuning.toml).
+3. Neither: IMU.
+
+IMU combines the accelerometer and gyroscope. NDOF adds the magnetometer, which keeps
+left and right from drifting but is disturbed by magnets, speakers and battery banks.
+
+**At startup** the bridge prints one line per check, and gestures start after the last one.
+
+| Check | IMU | NDOF | `--gravity` | What you do |
+| --- | --- | --- | --- | --- |
+| Fusion mode | yes | yes | yes | nothing |
+| Calibration | reported, no waiting | yes | yes | hold still, then draw a figure 8 if asked |
+| Magnetic field | skipped | yes | yes | nothing; a warning names what to move away |
+| World reference | skipped | skipped | yes | hold still, then shuffle right once when asked |
+
+Prompts look like `>>> Shuffle RIGHT once, quickly.` A warning does not stop the bridge.
+A strong magnetic field during play is logged and nothing else happens.
+
+If the world reference cannot be set, the bridge stops and prints the same command
+without `--gravity`, which runs with the fixed orientation instead.
+
+The limits behind these checks are in the `[gravity]` table of `tuning.toml`. To try
+it with no board: `python -m wefit_bridge --transport fake --gravity`.
+
 ## Layout
 
 ```
@@ -353,29 +403,42 @@ frontend/     the browser game (Three.js, Vite)
 backend/      optional score and leaderboard API (FastAPI)
 examples/     game_stub.py
 check.py      runs the bridge checks
-report.py     writes a latency report
-logs/         raw/ latency logs (not in git), reports/ latency reports (in git)
+report.py     writes a session report
+logs/         raw/ sensor and timing logs, runs/ gesture histories (neither in git),
+              reports/ session reports (in git)
 firstiterationsubwaysurfers/   original Arduino sketch; the gesture logic came from here
 ```
 
 Other tests: `uv run pytest` (backend) and `cd frontend && npm test`.
 
-## Latency report
+## Session report
 
-Every bridge run logs its timing (section 6). Turn the logs into a report with:
+Each bridge run is a session. It logs timing and sensor values to `logs/raw/` and its
+gesture history to `logs/runs/`, one line per gesture. Turn the logs into a report with:
 
 ```powershell
 python report.py
 ```
 
 It writes one HTML file to `logs/reports/` and prints its path. Open it in a browser.
-The report has a summary table, three charts and one-line definitions.
 
 | Command | Report covers |
 | --- | --- |
 | `python report.py` | The newest USB session and the newest Bluetooth session, side by side |
 | `python report.py usb` | The newest session over one connection: `usb`, `ble` or `fake` |
 | `python report.py logs/raw/<file>.bin` | That session; give several files to compare them |
+
+The report reads top to bottom:
+
+1. **Session**: USB or Bluetooth, IMU or NDOF, the startup check results, gesture counts
+   and a rough calorie estimate for a 70 kg person.
+2. **Tuning**: how hard each movement was against its threshold in `tuning.toml`, per
+   direction and per connection, including movements that almost fired.
+3. **Debug**: calibration, tilt error, heading drift and magnetic field over time.
+4. **Latency**: a summary table and three charts.
+
+Every time in the report counts from when the bridge started. `--no-latency-log` turns
+all of this logging off.
 
 What the numbers mean:
 

@@ -20,8 +20,16 @@ Adafruit_BNO055* bno = nullptr;
 
 BLEServer* server = nullptr;
 BLECharacteristic* sampleChar = nullptr;
+BLECharacteristic* statusChar = nullptr;
 
 volatile bool connected = false;
+
+// Fusion mode: the board boots in IMU mode; the host may ask for another
+uint8_t currentMode = MODE_IMU;
+volatile uint8_t requestedMode = MODE_IMU;
+
+char commandLine[16];
+uint8_t commandLength = 0;
 
 uint16_t seq = 0;
 unsigned long lastSample = 0;
@@ -36,6 +44,21 @@ class ServerCallbacks : public BLEServerCallbacks {
     connected = false;
     Serial.println("BLE: host disconnected, advertising again");
     BLEDevice::startAdvertising();
+  }
+};
+
+void requestMode(int mode) {
+  if (mode == MODE_IMU || mode == MODE_NDOF) {
+    requestedMode = (uint8_t)mode;
+  }
+}
+
+class CommandCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* characteristic) override {
+    std::string value = characteristic->getValue();
+    if (value.length() == 1) {
+      requestMode((uint8_t)value[0]);
+    }
   }
 };
 
@@ -94,6 +117,14 @@ void setupBle() {
   BLECharacteristic* infoChar = service->createCharacteristic(
     INFO_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
 
+  statusChar = service->createCharacteristic(
+    STATUS_CHAR_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  statusChar->addDescriptor(new BLE2902());
+
+  BLECharacteristic* commandChar = service->createCharacteristic(
+    COMMAND_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+  commandChar->setCallbacks(new CommandCallbacks());
+
   InfoPacket info;
   info.protocol_version = PROTOCOL_VERSION;
   info.fw_version = FW_VERSION;
@@ -133,7 +164,7 @@ void sendSample() {
   packet.quat[2] = (int16_t)lround(quat.y() * QUAT_SCALE);
   packet.quat[3] = (int16_t)lround(quat.z() * QUAT_SCALE);
   packet.calib = (calSys << 6) | (calGyro << 4) | (calAccel << 2) | calMag;
-  packet.flags = 0;
+  packet.flags = (currentMode == MODE_NDOF) ? FLAG_NDOF : 0;
 
   if (connected) {
     sampleChar->setValue((uint8_t*)&packet, sizeof(packet));
@@ -148,6 +179,65 @@ void sendSample() {
                 packet.quat[0], packet.quat[1], packet.quat[2], packet.quat[3],
                 packet.calib);
 #endif
+}
+
+void sendStatus() {
+  StatusPacket packet;
+  packet.uptime_ms = millis();
+  packet.mode = currentMode;
+  packet.mag[0] = packet.mag[1] = packet.mag[2] = 0;
+
+  // The magnetometer is powered only in NDOF mode
+  if (currentMode == MODE_NDOF) {
+    imu::Vector<3> mag = bno->getVector(Adafruit_BNO055::VECTOR_MAGNETOMETER);
+    packet.mag[0] = (int16_t)lround(mag.x() * MAG_SCALE);
+    packet.mag[1] = (int16_t)lround(mag.y() * MAG_SCALE);
+    packet.mag[2] = (int16_t)lround(mag.z() * MAG_SCALE);
+  }
+
+  if (connected) {
+    statusChar->setValue((uint8_t*)&packet, sizeof(packet));
+    statusChar->notify();
+  }
+
+#if SERIAL_STREAM
+  Serial.printf("T,%lu,%d,%d,%d,%u\n",
+                (unsigned long)packet.uptime_ms,
+                packet.mag[0], packet.mag[1], packet.mag[2], packet.mode);
+#endif
+}
+
+// Host commands on USB serial: "M,<mode>"
+void readCommands() {
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+
+    if (c == '\n' || c == '\r') {
+      commandLine[commandLength] = '\0';
+      if (commandLength > 2 && commandLine[0] == 'M' && commandLine[1] == ',') {
+        requestMode(atoi(commandLine + 2));
+      }
+      commandLength = 0;
+    } else if (commandLength < sizeof(commandLine) - 1) {
+      commandLine[commandLength++] = c;
+    }
+  }
+}
+
+void applyMode() {
+  uint8_t mode = requestedMode;
+  if (mode == currentMode) {
+    return;
+  }
+
+  // The BNO055 changes fusion mode through config mode. setMode() waits about 30 ms
+  // each time; this is the only blocking wait outside setup().
+  bno->setMode(OPERATION_MODE_CONFIG);
+  bno->setMode((adafruit_bno055_opmode_t)mode);
+  currentMode = mode;
+  lastSample = millis();
+
+  Serial.println(mode == MODE_NDOF ? "MODE: NDOF" : "MODE: IMU");
 }
 
 void setup() {
@@ -166,6 +256,9 @@ void setup() {
 }
 
 void loop() {
+  readCommands();
+  applyMode();
+
   unsigned long currentTime = millis();
 
   if (currentTime - lastSample >= SAMPLE_PERIOD_MS) {
@@ -177,5 +270,9 @@ void loop() {
 
     // Gesture detection lives in the Python bridge; firmware only streams
     sendSample();
+
+    if (seq % STATUS_EVERY_SAMPLES == 0) {
+      sendStatus();
+    }
   }
 }

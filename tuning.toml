@@ -10,8 +10,23 @@
 # A setting you delete falls back to the built-in default. A misspelt setting is an
 # error, not a silent no-op.
 
+# =================================================================================
+# SENSOR MODE. Which sensors the motion chip combines.
+#
+#   "imu"   accelerometer + gyroscope. The default. Startup skips the NDOF checks.
+#   "ndof"  the same plus the magnetometer (compass). Startup also checks calibration
+#           and the magnetic field around the controller.
+#
+# Order of authority:
+#   1. the --gravity flag always uses "ndof" and ignores this setting
+#   2. otherwise this setting
+#   3. if this line is deleted: "imu"
+# =================================================================================
+fusion_mode = "imu"
+
 # ---------------------------------------------------------------------------------
 # Orientation: which way the sensor is mounted. Shared by USB and Bluetooth.
+# Not used with --gravity, which works the directions out by itself.
 #
 # Name the sensor axis that points to the player's RIGHT and the one that points UP.
 # Valid values: "+x" "-x" "+y" "-y" "+z" "-z". The two must be on different axes.
@@ -60,3 +75,18 @@ up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
 down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
 left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
 right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+
+# ---------------------------------------------------------------------------------
+# Ground-referenced mode (--gravity) and the NDOF startup checks.
+#
+# mag_min_ut / mag_max_ut   microtesla. Field strength outside this range prints a
+#                           warning at startup and is logged during play. Earth's field
+#                           is 25 to 65; a magnet or speaker nearby reads far higher.
+# still_ms2                 m/s^2. Below this the controller counts as held still.
+# reference_timeout_s       seconds to wait for the "shuffle right" at startup.
+# ---------------------------------------------------------------------------------
+[gravity]
+mag_min_ut = 20
+mag_max_ut = 80
+still_ms2 = 0.5
+reference_timeout_s = 10

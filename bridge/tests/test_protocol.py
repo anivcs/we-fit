@@ -53,5 +53,5 @@ def test_non_sample_lines_are_ignored(line):
 
 
 def test_info_decode():
-    info = decode_info(INFO.pack(1, 7, 50))
-    assert (info.protocol_version, info.fw_version, info.sample_rate_hz) == (1, 7, 50)
+    info = decode_info(INFO.pack(2, 7, 50))
+    assert (info.protocol_version, info.fw_version, info.sample_rate_hz) == (2, 7, 50)

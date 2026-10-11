@@ -45,9 +45,26 @@ broken timestamp, not crystal error.
 ### Log files
 
 ```
-logs/raw/      git-ignored    20261011T044512Z_usb.bin + .json   one pair per bridge run
+logs/raw/      git-ignored    20261011T044512Z_usb.bin + .imu.bin + .json   per session
+logs/runs/     git-ignored    20261011T044512Z_usb.jsonl                    per session
 logs/reports/  committed      20261011T044512Z_usb-ble.html
 ```
+
+A session is one bridge run. Since the gravity work (2026-10-11) the same tracker also
+writes:
+
+- `.imu.bin`: one 18-byte row per sample (`metrics.IMU_RECORD`), in the same row order as
+  `.bin`: raw `accel`, `quat`, `calib`, plus `mode` and `mag_ut16` from the last status
+  packet. 0.9 kB/s. World-frame values are not logged; `latency/motion.py` recomputes them.
+- `.jsonl` in `logs/runs/`: the gesture history. Line 1 describes the session; then one
+  line per gesture, `{t_s, key, trigger_ms2}`, appended as it fires.
+- `.json` also holds `session` (fusion mode, gesture frame, `ready_s`), `startup` (each
+  check's result), `mag_excursions`, `limits`, `tuning`, `t0_offset_s` and
+  `uptime_at_t0_s`.
+- Times in the `.json` and `.jsonl` are seconds since the bridge started
+  (`clock.since_start`). `rx_us` in `.bin` is still since the first sample; add
+  `t0_offset_s`.
+- The report (`report.py`) now opens with Session, then Tuning and Debug, then Latency.
 
 - The transport (`usb`, `ble`, `fake`) is in the file name and in the `.json`.
 - `.bin`: one fixed 27-byte row per sample (`metrics.RECORD`, a numpy dtype). About

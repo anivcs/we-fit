@@ -26,6 +26,10 @@ class Config:
     latency_log: bool = True  # record sample timing to logs/raw/
     # None: read tuning.toml for the transport in use (see tuning.py)
     gestures: GestureConfig | None = None
+    # Ground-referenced gestures (--gravity). Forces NDOF, whatever fusion_mode says.
+    gravity: bool = False
+    # "imu" or "ndof". None: read fusion_mode from tuning.toml, which defaults to "imu".
+    fusion_mode: str | None = None
 
 
 def load_config(path: str | Path) -> Config:

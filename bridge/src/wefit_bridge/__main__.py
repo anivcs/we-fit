@@ -3,12 +3,14 @@
 import argparse
 import asyncio
 import logging
+import sys
 
 from .config import TRANSPORTS, Config, load_config
 from .latency import make_tracker
 from .pipeline import build_pipeline, run
 from .sinks import SINKS
 from .sinks.websocket import WebSocketPortError
+from .startup import StartupFailed
 from .transport import make_transport
 from .tuning import TuningError
 
@@ -43,6 +45,28 @@ def scan() -> None:
         print("  (none)")
 
 
+README_SECTION = "Fusion mode and ground-referenced gestures"
+
+
+def startup_failure_message(error: StartupFailed, argv: list[str]) -> str:
+    """What to print when a startup check stops the bridge, and what to run instead."""
+    if error.step != "reference":
+        return f"Startup failed: {error.reason}"
+    # The same command without --gravity, so the transport, port and sinks carry over
+    command = " ".join(["python -m wefit_bridge", *(a for a in argv if a != "--gravity")])
+    return (
+        f"Startup failed: the initial world reference could not be set ({error.reason}).\n"
+        "Ground-referenced mode was not started. To run with the fixed sensor orientation\n"
+        "from tuning.toml instead, run:\n"
+        "\n"
+        f"  {command}\n"
+        "\n"
+        "The sensor mode is chosen in this order: the --gravity flag (always NDOF), then\n"
+        'fusion_mode = "imu" or "ndof" in tuning.toml, otherwise IMU.\n'
+        f'All the options are in README.md, section "{README_SECTION}".'
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="wefit-bridge", description=__doc__)
     parser.add_argument("--config", help="path to a TOML config file")
@@ -56,6 +80,12 @@ def main() -> None:
     )
     parser.add_argument("--ws-host", help="websocket sink address (default: 127.0.0.1)")
     parser.add_argument("--ws-port", type=int, help="websocket sink port (default: 8765)")
+    parser.add_argument(
+        "--gravity",
+        action="store_true",
+        help="ground-referenced gestures: NDOF mode, no fixed sensor orientation; "
+        "overrides fusion_mode in tuning.toml",
+    )
     parser.add_argument(
         "--no-latency-log",
         action="store_true",
@@ -86,6 +116,8 @@ def main() -> None:
     if args.ws_port is not None:
         config.websocket_port = args.ws_port
 
+    if args.gravity:
+        config.gravity = True
     if args.no_latency_log:
         config.latency_log = False
 
@@ -101,6 +133,8 @@ def main() -> None:
         pass
     except WebSocketPortError as e:
         parser.exit(1, f"{e}\n")
+    except StartupFailed as e:
+        parser.exit(1, f"\n{startup_failure_message(e, sys.argv[1:])}\n")
 
 
 if __name__ == "__main__":

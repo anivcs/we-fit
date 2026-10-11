@@ -142,7 +142,9 @@ def test_report_is_written(tmp_path):
     tracker.close()
 
     page = write_report([load_session(tracker.path)], tmp_path).read_text(encoding="utf-8")
-    assert page.count("<svg") == 3
+    # tuning, calibration, tilt and heading, then the three latency charts
+    assert page.count("<svg") == 7
+    assert page.index("<h2>Session</h2>") < page.index("<h2>Tuning</h2>") < page.index("<h2>Debug</h2>") < page.index("<h2>Latency</h2>")
     assert all(metric.label in page for metric in METRICS.values())
 
 

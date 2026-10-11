@@ -12,5 +12,6 @@ frontend/dist/
 
 firmware/.pio/
 
-# Latency logs: raw sessions stay local, reports are committed
+# Session logs: raw sessions and gesture histories stay local, reports are committed
 logs/raw/
+logs/runs/

@@ -9,7 +9,14 @@
    v
  transport   usb (pyserial) | ble (bleak) | fake
    |                                    bridge/src/wefit_bridge/transport/
-   | Sample
+   | Sample (50 Hz) + Status (5 Hz: fusion mode, magnetometer, uptime)
+   v
+ startup     health checks, prompts,    startup.py    (blocks gestures only in NDOF
+   |         world reference                           mode or with --gravity)
+   v
+ frame       fixed [orientation], or    world.py      (--gravity: up from gravity,
+   |         world frame                               right from a startup shuffle)
+   | (right, forward, up)
    v
  gestures    thresholds + cooldown      gestures.py
    | "up" | "down" | "left" | "right"
@@ -24,6 +31,26 @@
 ```
 
 Everything runs on the machine that runs the game. There is no network and no server.
+
+## Fusion mode and gesture frame
+
+| Run | Chip mode | Frame the detector sees | Startup checks |
+| --- | --- | --- | --- |
+| no flag, `fusion_mode = "imu"` (default) | IMU | `[orientation]` | mode, calibration (reported, no wait) |
+| no flag, `fusion_mode = "ndof"` | NDOF | `[orientation]` | mode, calibration, magnetic field |
+| `--gravity` | NDOF, always | world | the same plus world reference |
+
+- Authority: `--gravity`, then `fusion_mode` in `tuning.toml`, then IMU.
+  `build_pipeline()` settles it into `config.fusion_mode`; `make_transport()` must run
+  after it.
+- `StartupGuide` (`startup.py`) is a synchronous state machine that returns
+  `StartupEvent`s and prints nothing. `log_event` is the terminal consumer; a game
+  passes its own to `Controller(on_startup=...)` and reads `controller.startup_done`.
+- A failed world reference raises `StartupFailed`; the CLI prints the command without
+  `--gravity`. There is no silent fall-back to `[orientation]`.
+- `FieldMonitor` logs magnetic excursions during play. Nothing reacts to them.
+- The quaternion is assumed to rotate sensor to world with world +Z up. Not verified on
+  hardware (open item O1 in `gravity-proposal.md`).
 
 ## Division of work: firmware vs Python
 
@@ -61,6 +88,8 @@ we-fit/
 │   │   ├── protocol.py           UUIDs, struct formats, Sample, decode/encode
 │   │   ├── events.py             KeyEvent, KEYS
 │   │   ├── gestures.py           GestureDetector: accel -> up/down/left/right
+│   │   ├── world.py              quaternion rotation, WorldFrame, GravityConfig
+│   │   ├── startup.py            StartupGuide, StartupEvent, FieldMonitor
 │   │   ├── keys.py               KeyState: one key at a time, auto-release
 │   │   ├── pipeline.py           Pipeline (sync core) + run() (asyncio driver)
 │   │   ├── client.py             Controller: blocking facade on a background thread
@@ -132,13 +161,15 @@ Event shape from the console sink:
 
 ## Drift and per-round reset
 
-- The BNO055 runs in `IMUPLUS` (no magnetometer), so heading drifts over time.
+- By default the BNO055 runs in `IMUPLUS` (no magnetometer), so heading drifts over
+  time. NDOF mode holds it with the magnetometer.
 - The game resets each round by calling `Controller.reset()`. It releases any held
   key, clears the cooldown, and stores the current quaternion as `reference_quat`.
 - Gestures use sensor-frame linear acceleration, so drift does not affect them.
   `reference_quat` is captured for future orientation-based gestures; nothing reads it yet.
-- The player must hold the controller the same way each round, because the axes are
-  fixed to the sensor.
+- Without `--gravity` the player must hold the controller the same way each round,
+  because the axes are fixed to the sensor. With it, only the heading must hold: the
+  world reference is captured once per session, not at `reset()`.
 
 ## USB notes
 

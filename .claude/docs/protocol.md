@@ -1,10 +1,14 @@
-# Wire protocol v1 — ESP32 -> bridge (BLE and USB)
+# Wire protocol v2 — ESP32 <-> bridge (BLE and USB)
 
 Source of truth. `firmware/include/protocol.h` and
 `bridge/src/wefit_bridge/protocol.py` must match this file. Any layout change bumps
 `PROTOCOL_VERSION`; the bridge refuses to use a controller reporting another version.
 
-The link carries sensor data only. Gestures, key state and reset live in the bridge.
+The board sends sensor data only. Gestures, key state and reset live in the bridge.
+The bridge sends one thing: which fusion mode to run.
+
+v2 (2026-10-11) added the status packet, the mode command and `flags` bit 0. The
+sample layout did not change.
 
 ## GATT layout
 
@@ -14,6 +18,8 @@ The link carries sensor data only. Gestures, key state and reset live in the bri
 | Service | `7e3f0001-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
 | Sample characteristic (notify) | `7e3f0002-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
 | Info characteristic (read) | `7e3f0003-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
+| Status characteristic (notify) | `7e3f0004-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
+| Command characteristic (write) | `7e3f0005-6b1c-4f6a-9d2e-5a1c0f3b9a10` |
 
 No pairing, bonding or encryption. All multi-byte fields are little-endian; structs
 are packed.
@@ -27,7 +33,7 @@ are packed.
 | 4 | 6 | i16[3] | accel | linear acceleration x, y, z; value = raw / 100 m/s² |
 | 10 | 8 | i16[4] | quat | orientation w, x, y, z; value = raw / 16384 |
 | 18 | 1 | u8 | calib | BNO055 calibration: sys<<6, gyro<<4, accel<<2, mag |
-| 19 | 1 | u8 | flags | reserved, 0 |
+| 19 | 1 | u8 | flags | bit 0 = 1 in NDOF mode; other bits 0 |
 
 Python: `struct.Struct("<HH3h4hBB")`
 
@@ -38,11 +44,39 @@ Acceleration has gravity removed and is expressed in the sensor frame.
 
 | Offset | Size | Type | Field |
 | --- | --- | --- | --- |
-| 0 | 1 | u8 | protocol_version (`1`) |
+| 0 | 1 | u8 | protocol_version (`2`) |
 | 1 | 2 | u16 | fw_version |
 | 3 | 2 | u16 | sample_rate_hz |
 
 Python: `struct.Struct("<BHH")`
+
+## Status (11 bytes, notified at 5 Hz: once per 10 samples)
+
+| Offset | Size | Type | Field | Notes |
+| --- | --- | --- | --- | --- |
+| 0 | 4 | u32 | uptime_ms | device `millis()`, not truncated |
+| 4 | 6 | i16[3] | mag | magnetic field x, y, z; value = raw / 16 µT. Zeros in IMU mode, where the magnetometer is off |
+| 10 | 1 | u8 | mode | fusion mode, below |
+
+Python: `struct.Struct("<I3hB")`
+
+## Fusion mode and the command
+
+| Mode | Value (the BNO055's `OPR_MODE`) |
+| --- | --- |
+| IMU (accelerometer + gyroscope) | `0x08` |
+| NDOF (plus magnetometer) | `0x0C` |
+
+- The board boots in IMU mode.
+- BLE: the bridge writes one byte, the mode, to the command characteristic on every
+  connect. A BLE connect does not reboot the board, so the mode from the last session
+  would otherwise persist.
+- USB: the bridge sends the line `M,<mode>` (decimal, e.g. `M,12`). The board ignores
+  input while it boots, so the bridge sends it once samples flow and repeats it every
+  0.5 s until a status line shows that mode.
+- Any other value is ignored. The switch goes through the chip's config mode and stalls
+  sampling for about 60 ms.
+- The bridge confirms the mode from `status.mode`, on both transports.
 
 ## USB serial (115200 baud, 8N1)
 
@@ -55,15 +89,18 @@ S,<seq>,<t_ms>,<ax>,<ay>,<az>,<qw>,<qx>,<qy>,<qz>,<calib>
 
 - Fields are the same raw integers as the BLE sample, in the same order and scale.
   `flags` is omitted.
-- Lines not starting with `S,` are firmware log messages; the bridge ignores them.
+- A status packet is the line `T,<uptime_ms>,<mx>,<my>,<mz>,<mode>`, raw integers as
+  in the BLE packet.
+- Other lines are firmware log messages; the bridge ignores them.
   A log line can occasionally interleave with a sample line; the damaged line fails
   to parse and is dropped.
 - There is no version field on this path. A layout change shows up as lines that
-  fail to parse.
+  fail to parse. Firmware older than v2 sends no `T,` lines: the bridge then assumes
+  IMU mode with a warning, and refuses to start in NDOF mode.
 - Opening the port toggles DTR/RTS and resets most ESP32 dev boards. Expect about
   3-5 s before the first sample.
 
-Python: `parse_sample_line()` in `protocol.py`.
+Python: `parse_sample_line()`, `parse_status_line()` and `command_line()` in `protocol.py`.
 
 ## Rules
 

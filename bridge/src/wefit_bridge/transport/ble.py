@@ -9,13 +9,18 @@ from bleak.exc import BleakError
 
 from ..clock import now
 from ..protocol import (
+    COMMAND_CHAR_UUID,
     DEVICE_NAME,
     INFO_CHAR_UUID,
+    MODES,
     PROTOCOL_VERSION,
     SAMPLE_CHAR_UUID,
+    STATUS_CHAR_UUID,
     Sample,
+    Status,
     decode_info,
     decode_sample,
+    decode_status,
 )
 
 log = logging.getLogger(__name__)
@@ -28,7 +33,10 @@ class BleTransport:
         address: str | None = None,
         scan_timeout_s: float = 10.0,
         retry_delay_s: float = 1.0,
+        mode: int = MODES["imu"],
     ):
+        self.mode = mode  # fusion mode to ask the firmware for
+        self.status: Status | None = None  # latest status packet
         self.name = name
         self.address = address
         self.scan_timeout_s = scan_timeout_s
@@ -61,11 +69,22 @@ class BleTransport:
                     self.dropped += 1
                 queue.put_nowait(sample)
 
+            def on_status(_char, data: bytearray) -> None:
+                try:
+                    self.status = decode_status(bytes(data), now())
+                except ValueError as e:
+                    log.debug("bad status dropped: %s", e)
+
             try:
                 async with BleakClient(
                     device, disconnected_callback=lambda _client: disconnected.set()
                 ) as client:
                     await self._check_version(client)
+                    self.status = None
+                    await client.start_notify(STATUS_CHAR_UUID, on_status)
+                    # A BLE connect does not reboot the board, so it may still be in the
+                    # mode the last session asked for
+                    await client.write_gatt_char(COMMAND_CHAR_UUID, bytes([self.mode]), response=True)
                     await client.start_notify(SAMPLE_CHAR_UUID, on_notify)
                     log.info("controller connected: %s", device.address)
 
@@ -92,6 +111,6 @@ class BleTransport:
         if info.protocol_version != PROTOCOL_VERSION:
             raise BleakError(
                 f"protocol version mismatch: firmware {info.protocol_version}, "
-                f"bridge {PROTOCOL_VERSION}"
+                f"bridge {PROTOCOL_VERSION}. Re-flash: pio run -d firmware -t upload"
             )
         log.info("firmware v%d, %d Hz", info.fw_version, info.sample_rate_hz)

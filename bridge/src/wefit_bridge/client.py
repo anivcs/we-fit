@@ -9,15 +9,20 @@
 """
 
 import asyncio
+import logging
 import queue
 import threading
+from collections.abc import Callable
 
 from .clock import now
 from .config import Config
 from .events import KEYS, KeyEvent
 from .latency import make_tracker
 from .pipeline import build_pipeline, run
+from .startup import StartupEvent, StartupFailed, log_event
 from .transport import make_transport
+
+log = logging.getLogger(__name__)
 
 
 class _QueueSink:
@@ -46,12 +51,22 @@ class Controller:
     """Runs the BLE pipeline on a background thread; the game loop only polls.
 
     `config.sinks` is ignored here: events are delivered through poll()/state().
+
+    `on_startup` receives each StartupEvent (prompts such as "Shuffle RIGHT once" and
+    the result of each check) so the game can show them. It is called on the bridge's
+    thread. The default logs them to the terminal.
     """
 
-    def __init__(self, config: Config | None = None):
+    def __init__(
+        self,
+        config: Config | None = None,
+        on_startup: Callable[[StartupEvent], None] = log_event,
+    ):
         self._config = config or Config()
         self._sink = _QueueSink()
-        self._pipeline = build_pipeline(self._config, sinks=[self._sink])
+        self._pipeline = build_pipeline(self._config, sinks=[self._sink], on_startup=on_startup)
+        # Set if a startup check stopped the bridge (see startup_done / startup_error)
+        self.startup_error: StartupFailed | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
         self._thread: threading.Thread | None = None
@@ -72,6 +87,9 @@ class Controller:
                 loop.run_until_complete(self._task)
             except asyncio.CancelledError:
                 pass
+            except StartupFailed as e:
+                self.startup_error = e
+                log.error("startup failed: %s", e.reason)
             finally:
                 loop.close()
 
@@ -82,7 +100,8 @@ class Controller:
     def stop(self) -> None:
         if self._thread is None:
             return
-        self._loop.call_soon_threadsafe(self._task.cancel)
+        if not self._loop.is_closed():  # closed already if a startup check failed
+            self._loop.call_soon_threadsafe(self._task.cancel)
         self._thread.join(timeout=5)
         self._thread = None
 
@@ -98,6 +117,12 @@ class Controller:
     def state(self) -> dict[str, bool]:
         """Current key state. At most one value is True."""
         return self._sink.state()
+
+    @property
+    def startup_done(self) -> bool:
+        """True once the startup checks have finished and gestures can arrive."""
+        guide = self._pipeline.guide
+        return guide is None or (guide.done and guide.failed is None)
 
     def reset(self) -> None:
         """Call at the start of each round."""

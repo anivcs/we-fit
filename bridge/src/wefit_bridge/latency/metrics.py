@@ -25,6 +25,18 @@ RECORD = np.dtype(
     ]
 )
 
+# One row per sample in logs/raw/*.imu.bin; row i belongs to row i of the .bin above.
+# Raw wire integers (see protocol.py for the scales), so nothing is lost or derived.
+IMU_RECORD = np.dtype(
+    [
+        ("accel", "<i2", (3,)),  # linear acceleration x, y, z, sensor frame
+        ("quat", "<i2", (4,)),  # orientation w, x, y, z
+        ("calib", "u1"),  # sys<<6 | gyro<<4 | accel<<2 | mag
+        ("mode", "u1"),  # fusion mode from the last status packet, 0 = none yet
+        ("mag_ut16", "<u2"),  # last magnetic field strength * 16, 0 = magnetometer off
+    ]
+)
+
 # The link's best case is re-estimated once per window, which is what tracks clock drift
 FLOOR_WINDOW_S = 10.0
 

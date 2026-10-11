@@ -78,10 +78,16 @@ class GestureDetector:
         self._rested = {"x": float("inf"), "z": float("inf")}
         self._rest_start: dict[str, float | None] = {"x": None, "z": None}
 
-    def update(self, accel: tuple[float, float, float], now: float) -> str | None:
-        """Return "up", "down", "left", "right", or None. One gesture at most."""
+    def update(
+        self, accel: tuple[float, float, float], now: float, oriented: bool = False
+    ) -> str | None:
+        """Return "up", "down", "left", "right", or None. One gesture at most.
+
+        `oriented` means accel is already (right, forward, up), as world.WorldFrame gives
+        it, so the fixed sensor orientation is not applied.
+        """
         cfg = self.config
-        x, y, z = orient(accel, cfg.right_axis, cfg.up_axis)
+        x, y, z = accel if oriented else orient(accel, cfg.right_axis, cfg.up_axis)
         ax, ay, az = abs(x), abs(y), abs(z)
 
         # An axis re-arms only after it has been still, so the opposite-direction spike

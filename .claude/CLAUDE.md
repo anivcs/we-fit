@@ -15,6 +15,7 @@ Detailed context lives next to this file:
 - [docs/protocol.md](docs/protocol.md) — BLE and USB wire formats (source of truth)
 - [docs/build-plan.md](docs/build-plan.md) — milestones, open questions
 - [docs/latency-tracking.md](docs/latency-tracking.md) — latency logging, metrics, report; phases 1-2 planned
+- [docs/gravity-proposal.md](docs/gravity-proposal.md) — `--gravity`, NDOF, startup checks, sensor logs: design, "As built" differences, open hardware items
 
 User-facing setup instructions are in the root `README.md`. Keep it in step with the
 commands below.
@@ -24,6 +25,9 @@ commands below.
 - **One controller, one player.** No player numbers, no device registry, no Wi-Fi.
 - **Output is four boolean arrow keys**: `up`, `down`, `left`, `right`. At most one is
   on at a time. No diagonals. Use exactly these strings everywhere.
+- **Two sensor modes, one optional world frame.** Authority: `--gravity` (always NDOF,
+  world-frame gestures), then `fusion_mode` in `tuning.toml`, then IMU. Without
+  `--gravity` gestures use the fixed `[orientation]`.
 - **Two transports, one firmware.** USB serial is the simple path for bench testing;
   BLE is the untethered path. The firmware always does both.
 
@@ -31,14 +35,16 @@ commands below.
 
 **The gesture logic is recreated in Python. The `.ino` is not used directly.**
 
-- Firmware streams raw sensor values (linear acceleration + quaternion) and makes no
-  decisions.
+- Firmware streams raw sensor values (linear acceleration + quaternion, and a 5 Hz
+  status packet with the magnetometer) and makes no decisions. Its one input is the
+  fusion mode the bridge asks for.
 - The bridge applies thresholds, return-to-rest gating, cooldown and the one-key rule
   in `bridge/src/wefit_bridge/gestures.py`, a port of the sketch.
 - Why: thresholds are tuned in a TOML file instead of by reflashing, and motion can
   be replayed in tests.
 - **All tuning is in `tuning.toml` at the repo root**, read on every start (no flag):
-  `[orientation]` (which sensor axis is right/up) and one profile per transport,
+  `fusion_mode` (first setting), `[orientation]` (which sensor axis is right/up),
+  `[gravity]` (limits for the NDOF checks and `--gravity`) and one profile per transport,
   `[usb]` and `[ble]`, each with a `threshold`/`rest_ms`/`cooldown_ms` row per
   direction. `tuning.py` loads it into `GestureConfig`; `fake` ignores the file.
   `bridge/config.toml` no longer has a `[gestures]` table.
@@ -47,16 +53,17 @@ commands below.
   (author "Spiritqurse"). When that file changes, re-port its constants and logic
   into `gestures.py`, `tuning.toml`, the tests and the README.
 
-## Current state (as of 2026-10-10)
+## Current state (as of 2026-10-11)
 
 | Path | State |
 | --- | --- |
 | Bridge core (protocol, gestures, keys, pipeline) | Working. Logic tests pass. |
 | `transport/fake.py` | Working; used by tests and demos. |
 | `transport/usb.py`, `transport/ble.py` | Written. **Never run against a real board.** |
-| `firmware/` | **Compiles** (`pio run`, 87.6% of flash). **Never flashed or run.** |
+| `firmware/` | v3, protocol v2. **Compiles** (`pio run`, 87.7% of flash). **Never flashed or run.** |
+| `world.py`, `startup.py`, `--gravity`, NDOF | Working against `fake`; logic tests pass. **Never run against a real board**; quaternion convention unverified (O1). |
 | `bridge/tests/test_setup.py` | Hardware checks. Verified only in their failing state (no board attached), plus "Bluetooth is enabled" passing. |
-| `latency/` (log, stats, `report.py`) | Working against `fake`. **Never run against a real board**, including the clock checks. |
+| `latency/` (timing + sensor log, `motion.py`, `report.py`) | Working against `fake`. **Never run against a real board**, including the clock checks. |
 | `firstiterationsubwaysurfers/*.ino` | Teammates' Arduino IDE prototype; source of the gesture logic. |
 
 `.venv` is Python 3.11.0 with everything from `requirements.txt` installed.
@@ -65,7 +72,8 @@ commands below.
 
 - Board: ESP32 dev board, I2C on SDA=21, SCL=22, bus clock 100 kHz.
 - IMU: Bosch BNO055 via `Adafruit_BNO055`, address 0x28 or 0x29 (probe both).
-- Mode: `OPERATION_MODE_IMUPLUS` (accel + gyro fusion, no magnetometer).
+- Mode at boot: `OPERATION_MODE_IMUPLUS` (accel + gyro fusion, no magnetometer). The
+  bridge can switch it to `OPERATION_MODE_NDOF` at run time.
 - Gestures (sketch at commit 04c71fc): dominant-axis test on linear acceleration.
   Up = +Z > 7.0, down = −Z > 4.0, right = +X > 4.0, left = −X > 4.0 (m/s²).
   Re-arm after all axes stay under 1.0 for 150 ms. Cooldown 500 ms. 50 Hz.
@@ -81,11 +89,12 @@ python check.py logic | usb | bluetooth      # one group
 python -m wefit_bridge --transport usb       # wired (default transport)
 python -m wefit_bridge --transport ble       # Bluetooth
 python -m wefit_bridge --transport fake      # scripted gestures, no hardware
+python -m wefit_bridge --transport usb --gravity   # NDOF + ground-referenced gestures
 python -m wefit_bridge --scan                # list USB ports and WeFit BLE devices
 python -m wefit_bridge --transport usb --sink keyboard   # press real arrow keys
 python examples/game_stub.py usb|ble|fake
 python -m wefit_bridge --transport usb --no-latency-log  # skip logs/raw/ and the exit summary
-python report.py [usb|ble|fake|<file>]       # latency report -> logs/reports/
+python report.py [usb|ble|fake|<file>]       # session report -> logs/reports/
 
 pio run -d firmware                          # build
 pio run -d firmware -t upload                # flash
@@ -108,11 +117,17 @@ In this environment `pio` is not on PATH unless the venv is activated; use
 - Firmware loop is scheduled with `millis()`; no `delay()` in the steady state.
 - All bridge timing uses `clock.now` (`time.perf_counter`). Do not use `time.monotonic`:
   it ticks every 15.6 ms on Windows before Python 3.13.
-- Latency logs: `logs/raw/` is git-ignored, `logs/reports/` is committed. Metric names
+- Session logs: `logs/raw/` and `logs/runs/` are git-ignored, `logs/reports/` is committed.
+  Log raw values only; derived ones (world-frame motion, peaks) belong in `latency/motion.py`.
+  Logged and reported times are seconds since bridge start (`clock.since_start`). Metric names
   live in `latency/metrics.py` (`METRICS`, `Summary`); reuse them, do not redefine.
 - Bridge core (`gestures`, `keys`, `Pipeline`) is synchronous and takes `now` as an
   argument. Bridge I/O is asyncio. `Controller` runs that loop on one background
   thread so a blocking game loop can poll it.
+- Startup logic returns `StartupEvent`s and never prints (`startup.py`), so a game can
+  show the prompts. Keep it that way.
+- The failure message for `--gravity` names a README heading (`README_SECTION` in
+  `__main__.py`); a test fails if the heading is renamed.
 - Drift is not compensated. The game calls `Controller.reset()` at the start of each
   round. Gestures use sensor-frame linear acceleration, which heading drift does not
   affect.

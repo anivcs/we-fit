@@ -7,3 +7,11 @@ to time 50 Hz samples. perf_counter is sub-microsecond everywhere.
 import time
 
 now = time.perf_counter
+
+# When this process started, near enough: logs report times relative to it
+START = now()
+
+
+def since_start(t: float) -> float:
+    """Seconds from bridge start to the clock reading t."""
+    return t - START
