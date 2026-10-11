@@ -218,24 +218,21 @@ export class Game {
         group.add(post);
       }
     } else {
-      const bodyDepth = spec.depth - spec.rampLength * (spec.frontRamp === false ? 1 : 2);
+      const hasFrontRamp = spec.frontRamp !== false;
+      const bodyDepth = spec.depth - (hasFrontRamp ? spec.rampLength : 0);
       const car = this.box(this.materials.train, spec.width, spec.height, bodyDepth);
       car.position.y = spec.height / 2;
-      if (spec.frontRamp === false) car.position.z = spec.rampLength / 2;
+      if (hasFrontRamp) car.position.z = -spec.rampLength / 2;
       group.add(car);
       const rampLength = Math.hypot(spec.rampLength, spec.height);
       const rampAngle = Math.atan2(spec.height, spec.rampLength);
       const rampOffset = spec.depth / 2 - spec.rampLength / 2;
-      const frontRamp = spec.frontRamp === false ? null : this.box(this.materials.train, spec.width, 0.18, rampLength);
+      const frontRamp = hasFrontRamp ? this.box(this.materials.train, spec.width, 0.18, rampLength) : null;
       if (frontRamp) {
         frontRamp.position.set(0, spec.height / 2, rampOffset);
         frontRamp.rotation.x = rampAngle;
       }
-      const rearRamp = this.box(this.materials.train, spec.width, 0.18, rampLength);
-      rearRamp.position.set(0, spec.height / 2, -rampOffset);
-      rearRamp.rotation.x = -rampAngle;
       if (frontRamp) group.add(frontRamp);
-      group.add(rearRamp);
       for (const x of [-spec.width / 2, spec.width / 2]) {
         const windows = this.box(this.materials.trainWindow, 0.02, 0.7, bodyDepth * 0.85);
         windows.position.set(x, spec.height * 0.65, car.position.z);
@@ -268,7 +265,6 @@ export class Game {
     this.speed = START_SPEED;
     this.coins = 0;
     this.nextRowAt = FIRST_ROW_AT;
-    this.lastTrainEnd = null;
     this.deathAnimation = null;
     this.player = { lane: 1, x: LANES[1], y: 0, vy: 0, grounded: true, duckTimer: 0 };
     this.cameraFollowY = 0;
@@ -333,9 +329,7 @@ export class Game {
       for (const { lane, type, spec: generatedSpec } of row.obstacles) {
         let spec = generatedSpec ?? OBSTACLE_SPECS[type];
         if (type === OBSTACLE.TRAIN) {
-          const gap = this.lastTrainEnd === null ? Infinity : this.nextRowAt - this.lastTrainEnd;
-          spec = { ...spec, frontRamp: trainHasFrontRamp(this.rng, gap) };
-          this.lastTrainEnd = this.nextRowAt + spec.depth;
+          spec = { ...spec, frontRamp: trainHasFrontRamp(this.rng) };
         }
         const mesh = this.createObstacleMesh(type, spec);
         mesh.position.x = LANES[lane];
@@ -412,6 +406,7 @@ export class Game {
     p.x = Math.abs(targetX - p.x) <= step ? targetX : p.x + Math.sign(targetX - p.x) * step;
 
     const groundY = this.groundHeightAt(this.distance, p.x);
+    if (p.grounded && groundY < p.y) p.grounded = false;
     if (p.grounded) {
       p.y = groundY;
       p.vy = 0;
@@ -440,12 +435,17 @@ export class Game {
     const p = this.player;
     const top = p.y + this.playerHeight();
     return this.obstacles.some(({ type, at, lane, spec }) => {
+      if (type === OBSTACLE.TRAIN) {
+        if (spec.frontRamp !== false) return false;
+        const touchesFront =
+          this.distance + PLAYER_HALF_DEPTH > at &&
+          this.distance - PLAYER_HALF_DEPTH < at + PLAYER_HALF_DEPTH;
+        if (!touchesFront || p.y >= spec.height) return false;
+      }
       if (
         !rangesOverlap(this.distance - PLAYER_HALF_DEPTH, this.distance + PLAYER_HALF_DEPTH, at, at + spec.depth) ||
         Math.abs(p.x - LANES[lane]) >= PLAYER_HALF_WIDTH + spec.width / 2
       ) return false;
-      if (type === OBSTACLE.TRAIN && spec.frontRamp !== false) return false;
-      if (type === OBSTACLE.TRAIN && p.y >= spec.height) return false;
       return rangesOverlap(p.y, top, spec.bottom, spec.bottom + spec.height);
     });
   }

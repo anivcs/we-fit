@@ -16,11 +16,10 @@ export const OBSTACLE_SPECS = {
 const DIFFICULTY_RAMP_METERS = 2500;
 const MIN_TRAIN_DEPTH = 10;
 const MAX_TRAIN_DEPTH = 60;
-const DIRECT_TRAIN_GAP = 12;
 const RAMPLESS_TRAIN_CHANCE = 0.4;
 
-export function trainHasFrontRamp(rng, gapFromPreviousTrain) {
-  return gapFromPreviousTrain > DIRECT_TRAIN_GAP || rng() >= RAMPLESS_TRAIN_CHANCE;
+export function trainHasFrontRamp(rng) {
+  return rng() >= RAMPLESS_TRAIN_CHANCE;
 }
 
 export function trainBlocksLaneChange(distance, fromLane, toLane, train, playerHalfDepth) {
@@ -36,12 +35,9 @@ function rangesOverlap(aMin, aMax, bMin, bMax) {
 }
 
 export function trainSurfaceHeight(distanceFromStart, spec = OBSTACLE_SPECS[OBSTACLE.TRAIN]) {
-  if (distanceFromStart < 0 || distanceFromStart > spec.depth) return 0;
+  if (distanceFromStart < 0 || distanceFromStart >= spec.depth) return 0;
   if (distanceFromStart < spec.rampLength) {
     return spec.frontRamp === false ? 0 : (spec.height * distanceFromStart) / spec.rampLength;
-  }
-  if (distanceFromStart > spec.depth - spec.rampLength) {
-    return (spec.height * (spec.depth - distanceFromStart)) / spec.rampLength;
   }
   return spec.height;
 }

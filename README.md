@@ -225,9 +225,9 @@ needed. You also need [Node.js](https://nodejs.org) (current LTS) for the game p
 The keyboard still works while the controller is connected: ← → lanes, ↑ or Space
 jump, ↓ duck, P pause.
 
-Trains have rear ramps and vary in length. Most have front ramps, but some closely
-spaced trains do not: jump from the previous train to reach their roofs. Hitting the
-front of a train without enough height ends the run. You can also jump between trains.
+Trains vary in length and may have a front ramp. Jump from another train to reach one
+without a front ramp; hitting its front without enough height ends the run. Trains
+have no rear ramp: jump off the back or run off and fall under gravity.
 
 Each gesture reaches the game as one JSON message,
 `{"move": "JUMP", "key": "up", "t": 15180.5}`, with `up`/`down`/`left`/`right` sent as

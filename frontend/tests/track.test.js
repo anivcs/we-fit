@@ -48,7 +48,7 @@ describe('track generation', () => {
     }
   });
 
-  it('generates trains at varied lengths that fit both ramps', () => {
+  it('generates trains at varied lengths that fit the front ramp', () => {
     const rng = createRng(817);
     const depths = [];
     for (let i = 0; i < 2000; i++) {
@@ -63,10 +63,20 @@ describe('track generation', () => {
     expect(new Set(depths).size).toBeGreaterThan(1);
   });
 
-  it('randomly omits front ramps only for trains close to a previous train', () => {
-    expect(trainHasFrontRamp(() => 0, 12)).toBe(false);
-    expect(trainHasFrontRamp(() => 0.4, 12)).toBe(true);
-    expect(trainHasFrontRamp(() => 0, 12.01)).toBe(true);
+  it('randomly omits front ramps for trains regardless of spacing', () => {
+    expect(trainHasFrontRamp(() => 0)).toBe(false);
+    expect(trainHasFrontRamp(() => 0.4)).toBe(true);
+    expect(trainHasFrontRamp(() => 0.99)).toBe(true);
+
+    const rng = createRng(52);
+    const total = 1000;
+    let rampless = 0;
+    for (let i = 0; i < total; i++) {
+      if (!trainHasFrontRamp(rng)) rampless++;
+    }
+    const ramplessRatio = rampless / total;
+    expect(ramplessRatio).toBeGreaterThan(0.35);
+    expect(ramplessRatio).toBeLessThan(0.45);
   });
 
   it('blocks a ground-level lane change into a train beside the player', () => {
@@ -85,14 +95,14 @@ describe('track generation', () => {
     }
   });
 
-  it('provides ground ramps and a roof across each train', () => {
+  it('provides a front ramp, train roof, and abrupt drop at the rear', () => {
     const { depth, height, rampLength } = OBSTACLE_SPECS[OBSTACLE.TRAIN];
     expect(trainSurfaceHeight(-0.1)).toBe(0);
     expect(trainSurfaceHeight(0)).toBe(0);
     expect(trainSurfaceHeight(rampLength / 2)).toBeCloseTo(height / 2);
     expect(trainSurfaceHeight(rampLength)).toBe(height);
     expect(trainSurfaceHeight(depth / 2)).toBe(height);
-    expect(trainSurfaceHeight(depth - rampLength / 2)).toBeCloseTo(height / 2);
+    expect(trainSurfaceHeight(depth - 0.001)).toBe(height);
     expect(trainSurfaceHeight(depth)).toBe(0);
     expect(trainSurfaceHeight(depth + 0.1)).toBe(0);
     const longerTrain = { ...OBSTACLE_SPECS[OBSTACLE.TRAIN], depth: 14 };
