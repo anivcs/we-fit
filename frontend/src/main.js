@@ -5,15 +5,12 @@ import { Game } from './game.js';
 import { attachKeyboard, attachSwipe } from './input.js';
 import { MOVES } from './moves.js';
 import { randomSeed } from './rng.js';
-import { createSounds } from './sound.js';
 
 const NAME_STORAGE_KEY = 'wefit.playerName';
 const HEALTH_POLL_MS = 15000;
 const COUNTDOWN_SECONDS = 3;
 // Players are often mid-jump when they crash; don't let that jump restart the game instantly.
 const RESTART_LOCKOUT_MS = 1500;
-
-const sounds = createSounds();
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -177,8 +174,6 @@ async function startRun() {
 async function handleGameOver({ score, coins, distance }) {
   appState = 'over';
   gameOverAt = performance.now();
-  sounds.playDeath();
-  
   ui.resultScore.textContent = formatNumber(score);
   ui.resultCoins.textContent = formatNumber(coins);
   ui.resultDistance.textContent = `${formatNumber(distance)} m`;
