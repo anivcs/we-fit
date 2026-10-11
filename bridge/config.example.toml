@@ -2,11 +2,16 @@
 # Use it with: python -m wefit_bridge --config bridge/config.toml
 
 transport = "usb"      # "usb", "ble", or "fake" (scripted gestures, no hardware)
-sinks = ["console"]    # "console" prints JSON lines; "keyboard" presses real arrow keys
+sinks = ["console"]    # "console" prints JSON lines; "keyboard" presses real arrow keys;
+                       # "websocket" serves moves to the browser game
 key_hold_ms = 120      # how long a key stays down after a gesture
 
 [usb]
 # port = "COM5"                   # optional; auto-detected when omitted
+
+[websocket]            # open the game with ?controller=ws://localhost:8765
+host = "127.0.0.1"     # "0.0.0.0" if the game runs in a browser on another machine
+port = 8765
 
 [ble]
 name = "WeFit"
@@ -16,6 +21,6 @@ name = "WeFit"
 side_threshold = 4.0
 up_threshold = 7.0
 down_threshold = 4.0
-rest_threshold = 1.0   # all axes below this counts as "at rest"
-rest_ms = 150          # must rest this long before the next gesture
-cooldown_ms = 500
+rest_threshold = 1.0   # an axis below this counts as "at rest"
+rest_ms = 150          # an axis must rest this long before it can fire again (per axis)
+cooldown_ms = 500      # minimum time between two gestures in the same direction

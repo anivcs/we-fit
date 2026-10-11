@@ -1,0 +1,2 @@
+[console_scripts]
+wefit-bridge = wefit_bridge.__main__:main

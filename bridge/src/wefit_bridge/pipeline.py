@@ -56,7 +56,7 @@ class Pipeline:
 
 def build_pipeline(config: Config, sinks: Iterable[Sink] | None = None) -> Pipeline:
     if sinks is None:
-        sinks = [make_sink(name) for name in config.sinks]
+        sinks = [make_sink(name, config) for name in config.sinks]
     return Pipeline(
         GestureDetector(config.gestures),
         KeyState(config.key_hold_ms / 1000),
@@ -72,6 +72,11 @@ async def run(transport, pipeline: Pipeline, clock: Callable[[], float] = time.m
         while True:
             await asyncio.sleep(TICK_S)
             pipeline.tick(clock())
+
+    for sink in pipeline.sinks:
+        start = getattr(sink, "start", None)
+        if start is not None:
+            await start()
 
     tick_task = asyncio.create_task(ticker())
     try:

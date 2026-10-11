@@ -34,6 +34,14 @@ def test_gesture_becomes_press_then_release():
     assert [(e.key, e.pressed) for e in sink.events] == [("left", True), ("left", False)]
 
 
+def test_up_then_right_back_to_back_are_both_delivered():
+    pipeline, sink = make()
+    pipeline.on_sample(sample((0.0, 0.0, 8.0)), now=0.0)
+    pipeline.on_sample(sample((5.0, 0.0, 0.0)), now=0.02)
+    presses = [e.key for e in sink.events if e.pressed]
+    assert presses == ["up", "right"]
+
+
 def test_reset_releases_key_rearms_and_rezeros():
     pipeline, sink = make()
     quat = (0.0, 1.0, 0.0, 0.0)
