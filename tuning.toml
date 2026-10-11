@@ -1,0 +1,62 @@
+# Gesture tuning. Edit, save, restart the bridge. No re-flash, no command-line flags.
+# This file is tracked in git, so changes reach every client.
+# Connection settings (transport, sinks, USB port, BLE address, websocket port) are in
+# bridge/config.toml, used with: python -m wefit_bridge --config bridge/config.toml
+#
+# The bridge reads this file every time it starts and logs which profile it used:
+#   --transport usb  -> [usb]
+#   --transport ble  -> [ble]
+#   --transport fake -> ignores this file (built-in defaults)
+# A setting you delete falls back to the built-in default. A misspelt setting is an
+# error, not a silent no-op.
+
+# ---------------------------------------------------------------------------------
+# Orientation: which way the sensor is mounted. Shared by USB and Bluetooth.
+#
+# Name the sensor axis that points to the player's RIGHT and the one that points UP.
+# Valid values: "+x" "-x" "+y" "-y" "+z" "-z". The two must be on different axes.
+#
+#   left/right swapped        -> flip the sign of `right`   ("+x" -> "-x")
+#   up/down swapped           -> flip the sign of `up`      ("+z" -> "-z")
+#   a jump reads as a sidestep -> the axes are swapped; exchange the two letters
+#
+# To find the axes: run `pio device monitor -d firmware -b 115200` and watch the
+# `S,<seq>,<t_ms>,<ax>,<ay>,<az>,...` lines while you push the controller right, then
+# up. See which of ax, ay, az jumps, and with which sign.
+# ---------------------------------------------------------------------------------
+[orientation]
+right = "+x"
+up    = "+z"
+
+# ---------------------------------------------------------------------------------
+# One profile per connection, one row per direction.
+#
+# threshold    m/s^2, greater than 0. Acceleration needed to count as a gesture.
+#              Lower = more sensitive (and more false triggers). Typical 3 to 12.
+#              Keep it above rest_threshold.
+# rest_ms      ms, 0 or more. How long that axis (left/right or up/down) must be still
+#              before this direction can fire. This is what stops the jolt at the end
+#              of a jump from reading as a duck. Too low = phantom opposite gestures;
+#              too high = quick up-then-down is missed. 0 turns the check off.
+# cooldown_ms  ms, 0 or more. Minimum time between two gestures in this same
+#              direction. Lower = faster repeats. 0 turns the check off.
+#
+# rest_threshold  m/s^2, greater than 0. An axis below this counts as "still".
+#                 Raise it if a shaky hand never re-arms; typical 0.5 to 2.
+#
+# A gesture on the other axis is never delayed: up then left fires straight away.
+# ---------------------------------------------------------------------------------
+
+[usb]   # wired
+rest_threshold = 1.0
+up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
+down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+
+[ble]   # Bluetooth
+rest_threshold = 1.0
+up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
+down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }

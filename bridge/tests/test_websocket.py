@@ -5,7 +5,7 @@ import pytest
 from websockets.asyncio.client import connect
 
 from wefit_bridge.config import Config, load_config
-from wefit_bridge.events import KeyEvent
+from wefit_bridge.events import KEYS, KeyEvent
 from wefit_bridge.pipeline import build_pipeline, run
 from wefit_bridge.sinks import make_sink
 from wefit_bridge.sinks.websocket import WebSocketPortError, WebSocketSink
@@ -76,9 +76,11 @@ def test_config_and_factory(tmp_path):
 def test_fake_controller_end_to_end_over_websocket():
     """Scripted controller -> gesture detection -> WebSocket -> a game client."""
     sink = WebSocketSink(port=0)
-    pipeline = build_pipeline(Config(), sinks=[sink])
-    pipeline.detector.config.cooldown_s = 0.2
-    pipeline.detector.config.rest_s = 0.1
+    pipeline = build_pipeline(Config(transport="fake"), sinks=[sink])
+    for key in KEYS:
+        direction = getattr(pipeline.detector.config, key)
+        direction.cooldown_s = 0.2
+        direction.rest_s = 0.1
     transport = FakeTransport(rate_hz=100, gesture_every_s=0.4, pulse_s=0.1)
 
     async def main():

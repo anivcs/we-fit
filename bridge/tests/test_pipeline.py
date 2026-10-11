@@ -1,6 +1,7 @@
 import asyncio
 
 from wefit_bridge.config import Config
+from wefit_bridge.events import KEYS
 from wefit_bridge.pipeline import build_pipeline, run
 from wefit_bridge.protocol import Sample
 from wefit_bridge.transport.fake import FakeTransport
@@ -24,7 +25,7 @@ def sample(accel, quat=(1.0, 0.0, 0.0, 0.0)):
 
 def make():
     sink = ListSink()
-    return build_pipeline(Config(), sinks=[sink]), sink
+    return build_pipeline(Config(transport="fake"), sinks=[sink]), sink
 
 
 def test_gesture_becomes_press_then_release():
@@ -65,8 +66,10 @@ def test_close_releases_held_key():
 def test_fake_controller_end_to_end():
     pipeline, sink = make()
     transport = FakeTransport(rate_hz=100, gesture_every_s=0.4, pulse_s=0.1)
-    pipeline.detector.config.cooldown_s = 0.2
-    pipeline.detector.config.rest_s = 0.1
+    for key in KEYS:
+        direction = getattr(pipeline.detector.config, key)
+        direction.cooldown_s = 0.2
+        direction.rest_s = 0.1
 
     async def main():
         task = asyncio.create_task(run(transport, pipeline))

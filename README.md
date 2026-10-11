@@ -10,6 +10,8 @@ Python program (the "bridge") that turns its movement into four arrow-key inputs
 ESP32 + BNO055  ──USB cable or Bluetooth──>  Python bridge  ──>  arrow keys for the game
 ```
 
+The repo also holds the browser game those inputs drive. Section 6 runs the two together.
+
 The ESP32 only sends raw sensor readings. Python decides what counts as a gesture.
 
 > **Status:** the Python side passes its tests against a simulated controller, and the
@@ -18,7 +20,7 @@ The ESP32 only sends raw sensor readings. Python decides what counts as a gestur
 
 ## 1. Install (once per machine)
 
-You need Python 3.11 or newer and git.
+You need Python 3.11 or newer and git. The browser game (section 6) also needs Node.js.
 
 ```powershell
 git clone https://github.com/anivcs/we-fit.git
@@ -158,8 +160,8 @@ device called `WeFit`, remove it there first.
 | Found, but cannot connect | Remove `WeFit` from the OS Bluetooth device list, then unplug and replug the board. |
 | Several `WeFit` boards in the room | Pin yours by address, as described below. |
 
-To pin one board: copy `bridge/config.example.toml` to `bridge/config.toml`, set
-`transport = "ble"`, and put the address from `--scan` under `[ble]`:
+To pin one board: edit `bridge/config.toml` (it is tracked in git, so
+clients share it), set `transport = "ble"`, and put the address from `--scan` under `[ble]`:
 
 ```toml
 [ble]
@@ -182,23 +184,71 @@ python check.py bluetooth    # is Bluetooth on, is the ESP32 visible and sending
 Hardware checks fail when the hardware is absent. Each failure prints one sentence
 saying what to do.
 
-## 6. Use it with a game
+## 6. Play the browser game
 
-- **The WeFit browser game (Three.js frontend).** The bridge reads the ESP32 over USB
-  and serves each gesture on a local WebSocket:
+Three things run on the laptop: the game page, the bridge, and a browser. No Docker is
+needed. You also need [Node.js](https://nodejs.org) (current LTS) for the game page.
+
+1. **Start the game page.** In one terminal:
+
+   ```powershell
+   cd frontend
+   npm install          # first time only
+   npm run dev
+   ```
+
+   Leave it running. It serves the game at `http://localhost:5173`.
+
+2. **Start the bridge.** In a second terminal, with the venv activated and the ESP32
+   powered (section 4):
+
+   ```powershell
+   python -m wefit_bridge --transport ble --sink websocket --sink console
+   ```
+
+   It logs `game WebSocket listening on ws://127.0.0.1:8765`, then
+   `controller connected: ...` once it finds the board. `--sink console` also prints
+   each gesture in the terminal, so you can see what the game is being sent.
+
+   For the wired controller use `--transport usb`. With no board at all, use
+   `--transport fake` to play scripted gestures.
+
+3. **Open the game** in a browser on the same laptop:
+
+   ```
+   http://localhost:5173/?controller=ws://localhost:8765
+   ```
+
+   The pill at the top reads `Controller: connected`. Jump (`up`) to start a run.
+   `Backend: offline (scores not saved)` is expected here; the game plays normally.
+
+The keyboard still works while the controller is connected: ← → lanes, ↑ or Space
+jump, ↓ duck, P pause.
+
+Each gesture reaches the game as one JSON message,
+`{"move": "JUMP", "key": "up", "t": 15180.5}`, with `up`/`down`/`left`/`right` sent as
+`JUMP`/`DUCK`/`LEFT`/`RIGHT`. Use `--ws-port` to change the port, and
+`--ws-host 0.0.0.0` if the browser runs on another machine.
+
+### Optional: save scores and show the leaderboard
+
+The game only needs the backend for scores. Pick one way to run it; the pill changes
+to `Backend: online` within 15 seconds.
+
+- **Without Docker.** Scores go to a local SQLite file, `wefit.db`. In a third
+  terminal, from the repo root with the venv activated:
 
   ```powershell
-  python -m wefit_bridge --transport usb --sink websocket
+  pip install -r backend/requirements.txt      # first time only
+  uvicorn api:app --app-dir backend --port 8000
   ```
 
-  Then open the game with `http://localhost:5173/?controller=ws://localhost:8765`. The
-  status pill reads `Controller: connected`, and a jump starts a run. Each gesture
-  arrives as one JSON message, `{"move": "JUMP", "key": "up", "t": 15180.5}`, with
-  `up`/`down`/`left`/`right` sent as `JUMP`/`DUCK`/`LEFT`/`RIGHT`.
+- **With Docker and PostgreSQL**: `docker compose up -d --build`.
 
-  Add `--sink console` as well to see the gestures in the terminal. Use `--ws-port` to
-  change the port, and `--ws-host 0.0.0.0` if the browser runs on another machine. To
-  try it without the board, use `--transport fake`.
+If the backend runs on another machine, add `&api=http://<backend-host>:8000/api/v1`
+to the game URL.
+
+## 7. Use it with another game
 
 - **Any game that reads the keyboard.** This presses the real arrow keys; click the
   game window so it has focus:
@@ -221,54 +271,74 @@ saying what to do.
   A runnable example: `python examples/game_stub.py usb` (or `ble`, or `fake` for no
   hardware).
 
-## Gestures
+- **Your own WebSocket controller for the browser game.** Anything that serves the
+  same messages works with `?controller=ws://...`. It may send plain moves (`JUMP`,
+  `DUCK`, `LEFT`, `RIGHT`), JSON (`{"move": "JUMP"}`), or raw accelerometer samples in
+  g (`{"ax": 0.1, "ay": 2.3, "az": 0.0}`, +y up, +x right).
+
+## Gestures and tuning
 
 Move the controller sharply. Moves on different axes can be chained straight away, for
 example a jump (`up`) followed at once by a lane change (`left` or `right`).
 
-| Key | Motion | Threshold |
+All the numbers are in [`tuning.toml`](tuning.toml) at the repo root. Edit it, save,
+and restart the bridge; there is nothing to re-flash and no flag to pass. The bridge
+logs the file and profile it loaded, for example `gesture tuning: ...\tuning.toml [ble]`.
+
+The file has two profiles, `[usb]` for the cable and `[ble]` for Bluetooth, so each
+connection can be tuned separately. Each profile has one row per direction:
+
+```toml
+[ble]
+rest_threshold = 1.0
+up    = { threshold = 7.0, rest_ms = 150, cooldown_ms = 500 }
+down  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+left  = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+right = { threshold = 4.0, rest_ms = 150, cooldown_ms = 500 }
+```
+
+| Setting | Meaning | If the controller... |
 | --- | --- | --- |
-| `up` | acceleration along +Z | 7.0 m/s² |
-| `down` | acceleration along −Z | 4.0 m/s² |
-| `right` | acceleration along +X | 4.0 m/s² |
-| `left` | acceleration along −X | 4.0 m/s² |
+| `threshold` (m/s²) | Acceleration that counts as this gesture. | ...misses moves: lower it. ...fires by accident: raise it. |
+| `rest_ms` | How long that axis must be still before this direction can fire. It stops the jolt at the end of a jump from reading as a duck. | ...adds a phantom opposite move: raise it. ...misses a quick `up` then `down`: lower it. |
+| `cooldown_ms` | Minimum time between two gestures in this same direction. | ...cannot repeat a move fast enough: lower it. ...double-fires: raise it. |
+| `rest_threshold` (m/s²) | Below this an axis counts as still. One value per profile. | ...stops responding in a shaky hand: raise it. |
 
-Only one key is ever down at a time. The delays are separate for each direction:
+The shipped values are the same in both profiles: `up` needs 7.0 m/s² along +Z, and
+`down` (−Z), `right` (+X) and `left` (−X) need 4.0 m/s². A gesture on the other axis is
+never delayed, so `up` then `left` fires at once.
 
-- **Same direction** (`up` then `up`): wait at least 500 ms since the last one, and
-  hold the controller still for 150 ms in between.
-- **Opposite direction on the same axis** (`up` then `down`, `left` then `right`): the
-  axis must be still for 150 ms first. This is what stops the jolt of stopping a move
-  from counting as a move the other way.
-- **Different axis** (`up` then `left`/`right`, or the reverse): no delay.
+**Orientation.** If the sensor is mounted differently, set which sensor axis points to
+the player's right and which points up. This applies to both profiles:
+
+```toml
+[orientation]
+right = "+x"     # "+x" "-x" "+y" "-y" "+z" "-z"
+up    = "+z"     # must be a different axis from `right`
+```
+
+Left and right swapped: change `"+x"` to `"-x"`. Up and down swapped: change `"+z"` to
+`"-z"`. The comments in the file say how to find the axes from the serial monitor.
+
+A misspelt setting or an invalid value stops the bridge with one line naming the file
+and the setting. `python check.py logic` also checks the file. `--transport fake`
+ignores the file and uses fixed values.
 
 With the WebSocket sink every gesture arrives, so a chained `up` + `right` reaches the
 game as two moves. With the keyboard sink, only one key is down at a time, so the first
 key is released as soon as the second is pressed.
 
-To change these numbers, edit `[gestures]` in `bridge/config.toml`; no re-flash is
-needed.
-
 ## Layout
 
 ```
+tuning.toml   gesture thresholds, delays and sensor orientation
 firmware/     ESP32 code (PlatformIO)
 bridge/       Python package wefit_bridge, and its tests
+frontend/     the browser game (Three.js, Vite)
+backend/      optional score and leaderboard API (FastAPI)
 examples/     game_stub.py
-check.py      runs the checks
+check.py      runs the bridge checks
 firstiterationsubwaysurfers/   original Arduino sketch; the gesture logic came from here
 ```
-Motion Controlled Subway Surfer
 
-## Running locally
-
-1. Backend + PostgreSQL: `docker compose up -d --build` (API at `http://localhost:8000/api/v1`).
-2. Frontend: `cd frontend && npm install && npm run dev`, then open `http://localhost:5173` on the display device.
-
-Frontend URL options:
-- `?api=http://<backend-host>:8000/api/v1` if the backend isn't on the same host as the page.
-- `?controller=ws://localhost:8765` to take moves from the USB bridge (see "Use it with a game" above). Any WebSocket controller works if it follows the same message format. It may send plain moves (`JUMP`, `DUCK`, `LEFT`, `RIGHT`), JSON (`{"move": "JUMP"}`), or raw accelerometer samples in g (`{"ax": 0.1, "ay": 2.3, "az": 0.0}`, +y up, +x right).
-
-Keyboard fallback: ← → lanes, ↑ / Space jump, ↓ duck, P pause.
-
-Tests: `uv run pytest` (backend) and `cd frontend && npm test`.
+Other tests: `uv run pytest` (backend) and `cd frontend && npm test`.

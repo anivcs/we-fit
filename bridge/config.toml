@@ -1,0 +1,23 @@
+# Connection settings (transport, sinks, ports, BLE address). Tracked in git, so edits
+# here reach every client; commit them deliberately.
+# Use it with: python -m wefit_bridge --config bridge/config.toml
+# Command-line flags such as --transport override it. Gesture tuning is in /tuning.toml.
+
+transport = "usb"      # "usb", "ble", or "fake" (scripted gestures, no hardware)
+sinks = ["console"]    # "console" prints JSON lines; "keyboard" presses real arrow keys;
+                       # "websocket" serves moves to the browser game
+key_hold_ms = 120      # how long a key stays down after a gesture
+
+[usb]
+# port = "COM5"                   # optional; auto-detected when omitted
+
+[websocket]            # open the game with ?controller=ws://localhost:8765
+host = "127.0.0.1"     # "0.0.0.0" if the game runs in a browser on another machine
+port = 8765
+
+[ble]
+name = "WeFit"
+# address = "AA:BB:CC:DD:EE:FF"   # optional; find it with: python -m wefit_bridge --scan
+
+# Gesture thresholds, delays and sensor orientation are not set here.
+# Edit tuning.toml at the repo root; it is read on every start, with or without --config.

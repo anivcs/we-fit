@@ -32,7 +32,7 @@ Everything runs on the machine that runs the game. There is no network and no se
 | Talks to the BNO055 | yes | no |
 | Sensor fusion, gravity removal | BNO055 chip does it | no |
 | Decides what a gesture is | **no** | **yes** |
-| Thresholds, cooldown | none | `GestureConfig`, set in TOML |
+| Thresholds, delays, sensor orientation | none | `GestureConfig`, set in `tuning.toml` per transport and direction |
 | Arrow-key rules | none | `KeyState` |
 
 The prototype `.ino` did detection on the ESP32 and printed text to USB serial. That
@@ -53,7 +53,7 @@ we-fit/
 │   └── src/main.cpp              BNO055 init, BLE GATT server, 50 Hz notify loop
 ├── bridge/
 │   ├── pyproject.toml            deps: bleak; extras: keyboard (pynput), dev (pytest)
-│   ├── config.example.toml       transport, sinks, key hold, gesture thresholds
+│   ├── config.toml               transport, sinks, key hold (tracked; gesture tuning is in /tuning.toml)
 │   ├── src/wefit_bridge/
 │   │   ├── __init__.py           exports Controller, Config, load_config, KeyEvent, KEYS
 │   │   ├── __main__.py           CLI: python -m wefit_bridge
@@ -112,9 +112,10 @@ Two options; both are implemented. The game team picks one.
   produce two gestures. If a gesture fires while a key is down, the bridge emits the
   release first, then the new press.
 - A gesture is a **tap**: press, then automatic release after `key_hold_ms` (120 ms).
-- After a gesture the detector re-arms only when all axes have stayed under
-  `rest_threshold` (1.0 m/s²) for `rest_ms` (150 ms), and at least `cooldown_ms`
-  (500 ms) has passed. The rest gate is what rejects the opposite-direction spike
+- After a gesture, a direction can fire again only when its axis has stayed under
+  `rest_threshold` (1.0 m/s²) for that direction's `rest_ms` (150 ms), and at least
+  its `cooldown_ms` (500 ms) has passed since it last fired. The other axis is not
+  delayed. Each direction's numbers are set per transport in `tuning.toml`. The rest gate is what rejects the opposite-direction spike
   when a motion stops (an `up` swing ends with a −Z jolt that would otherwise read
   as `down`). This logic and its numbers come from the teammates' sketch.
 - A lost BLE link cannot leave a key stuck: the release timer runs independently of
