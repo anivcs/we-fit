@@ -1,6 +1,6 @@
 import pytest
 
-from wefit_bridge.gestures import GestureDetector
+from wefit_bridge.gestures import DirectionConfig, GestureConfig, GestureDetector
 
 REST = (0.0, 0.0, 0.0)
 
@@ -113,3 +113,62 @@ def test_reset_rearms_immediately():
     assert detector.update((5.0, 0.0, 0.0), now=0.0) == "right"
     detector.reset()
     assert detector.update((-5.0, 0.0, 0.0), now=0.1) == "left"
+
+
+def test_each_direction_has_its_own_threshold():
+    config = GestureConfig(
+        left=DirectionConfig(threshold=2.0), right=DirectionConfig(threshold=9.0)
+    )
+    assert GestureDetector(config).update((-3.0, 0.0, 0.0), now=0.0) == "left"
+    assert GestureDetector(config).update((8.0, 0.0, 0.0), now=0.0) is None
+
+
+def test_each_direction_has_its_own_cooldown():
+    config = GestureConfig(
+        left=DirectionConfig(cooldown_s=0.1, rest_s=0.0),
+        right=DirectionConfig(cooldown_s=1.0, rest_s=0.0),
+    )
+    detector = GestureDetector(config)
+    assert detector.update((-5.0, 0.0, 0.0), now=0.0) == "left"
+    assert detector.update((5.0, 0.0, 0.0), now=0.0) == "right"
+    assert detector.update((-5.0, 0.0, 0.0), now=0.2) == "left"
+    assert detector.update((5.0, 0.0, 0.0), now=0.2) is None
+
+
+def test_each_direction_has_its_own_rest_time():
+    config = GestureConfig(down=DirectionConfig(rest_s=0.3), up=DirectionConfig(rest_s=0.05))
+    detector = GestureDetector(config)
+    assert detector.update((0.0, 0.0, 8.0), now=0.0) == "up"
+    assert detector.update(REST, now=0.1) is None
+    assert detector.update(REST, now=0.2) is None  # z has been still for 100 ms
+    assert detector.update((0.0, 0.0, -8.0), now=0.25) is None  # down needs 300 ms
+    assert detector.update(REST, now=0.3) is None
+    assert detector.update(REST, now=0.7) is None
+    assert detector.update((0.0, 0.0, -8.0), now=0.75) == "down"
+
+
+@pytest.mark.parametrize(
+    "right_axis, up_axis, accel, expected",
+    [
+        ("-x", "+z", (5.0, 0.0, 0.0), "left"),  # mounted mirrored
+        ("+x", "-z", (0.0, 0.0, 8.0), "down"),  # mounted upside down
+        ("+y", "+z", (0.0, 5.0, 0.0), "right"),  # rotated a quarter turn
+        ("+z", "-x", (-8.0, 0.0, 0.0), "up"),  # on its side
+        ("+z", "-x", (0.0, 0.0, -5.0), "left"),
+    ],
+)
+def test_orientation_remaps_the_sensor_axes(right_axis, up_axis, accel, expected):
+    config = GestureConfig(right_axis=right_axis, up_axis=up_axis)
+    assert GestureDetector(config).update(accel, now=0.0) == expected
+
+
+def test_leftover_axis_still_blocks_when_dominant():
+    config = GestureConfig(right_axis="+y", up_axis="+z")
+    # Sensor X is now the unused forward/back axis
+    assert GestureDetector(config).update((9.0, 5.0, 0.0), now=0.0) is None
+
+
+@pytest.mark.parametrize("right_axis, up_axis", [("+x", "-x"), ("x", "+z"), ("+x", "up")])
+def test_bad_orientation_is_rejected(right_axis, up_axis):
+    with pytest.raises(ValueError):
+        GestureConfig(right_axis=right_axis, up_axis=up_axis)

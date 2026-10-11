@@ -2,7 +2,23 @@ import * as THREE from 'three';
 
 import { MOVES } from './moves.js';
 import { createRng } from './rng.js';
-import { LANES, OBSTACLE, OBSTACLE_SPECS, difficultyAt, generateRow, nextRowGap } from './track.js';
+import {
+  LANES,
+  FIRST_MOVING_TRAIN_SCORE,
+  MOVING_TRAIN_SPAWN_AHEAD,
+  OBSTACLE,
+  OBSTACLE_SPECS,
+  difficultyAt,
+  generateMovingTrainPhase,
+  generateRow,
+  isOnTrainRoof,
+  movingTrainPhaseBlocksObstacle,
+  nextMovingTrainPhaseStart,
+  nextRowGap,
+  trainBlocksLaneChange,
+  trainHasFrontRamp,
+  trainSurfaceHeight,
+} from './track.js';
 
 export const SCORE_PER_METER = 10;
 export const SCORE_PER_COIN = 100;
@@ -24,6 +40,11 @@ const PLAYER_HALF_WIDTH = 0.35;
 const PLAYER_HALF_DEPTH = 0.35;
 const COIN_PICKUP_RADIUS = 0.9;
 const COIN_SPACING = 2.2;
+const CAMERA_BASE_HEIGHT = 4.2;
+const CAMERA_LOOK_AT_HEIGHT = 1.2;
+const CAMERA_FOLLOW_SPEED = 4.5;
+const DEATH_ANIMATION_SECONDS = 1;
+const DEATH_LUNGE_SECONDS = 0.18;
 
 const TRACK_TILE_METERS = 8;
 const SCENERY_SPAN = 240;
@@ -65,6 +86,9 @@ export class Game {
     this.coinsInWorld = [];
     this.lastTime = null;
     this.elapsed = 0;
+    this.deathAnimation = null;
+    this.movingTrainPhases = [];
+    this.nextMovingTrainPhaseAt = null;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -183,8 +207,7 @@ export class Game {
     this.playerShadow = blob;
   }
 
-  createObstacleMesh(type) {
-    const spec = OBSTACLE_SPECS[type];
+  createObstacleMesh(type, spec = OBSTACLE_SPECS[type]) {
     const group = new THREE.Group();
     if (type === OBSTACLE.LOW) {
       const barrier = this.box(this.materials.low, spec.width, spec.height, spec.depth);
@@ -203,16 +226,28 @@ export class Game {
         group.add(post);
       }
     } else {
-      const car = this.box(this.materials.train, spec.width, spec.height, spec.depth);
+      const hasFrontRamp = spec.frontRamp !== false;
+      const bodyDepth = spec.depth - (hasFrontRamp ? spec.rampLength : 0);
+      const car = this.box(this.materials.train, spec.width, spec.height, bodyDepth);
       car.position.y = spec.height / 2;
+      if (hasFrontRamp) car.position.z = -spec.rampLength / 2;
       group.add(car);
+      const rampLength = Math.hypot(spec.rampLength, spec.height);
+      const rampAngle = Math.atan2(spec.height, spec.rampLength);
+      const rampOffset = spec.depth / 2 - spec.rampLength / 2;
+      const frontRamp = hasFrontRamp ? this.box(this.materials.train, spec.width, 0.18, rampLength) : null;
+      if (frontRamp) {
+        frontRamp.position.set(0, spec.height / 2, rampOffset);
+        frontRamp.rotation.x = rampAngle;
+      }
+      if (frontRamp) group.add(frontRamp);
       for (const x of [-spec.width / 2, spec.width / 2]) {
-        const windows = this.box(this.materials.trainWindow, 0.02, 0.7, spec.depth * 0.85);
-        windows.position.set(x, spec.height * 0.65, 0);
+        const windows = this.box(this.materials.trainWindow, 0.02, 0.7, bodyDepth * 0.85);
+        windows.position.set(x, spec.height * 0.65, car.position.z);
         group.add(windows);
       }
       const front = this.box(this.materials.trainWindow, spec.width * 0.7, 0.9, 0.02);
-      front.position.set(0, spec.height * 0.65, spec.depth / 2);
+      front.position.set(0, spec.height * 0.65, car.position.z + bodyDepth / 2);
       group.add(front);
     }
     return group;
@@ -238,7 +273,13 @@ export class Game {
     this.speed = START_SPEED;
     this.coins = 0;
     this.nextRowAt = FIRST_ROW_AT;
-    this.player = { lane: 1, x: LANES[1], y: 0, vy: 0, duckTimer: 0 };
+    this.deathAnimation = null;
+    this.phaseRng = createRng((seed ^ 0x6d2b79f5) >>> 0);
+    this.movingTrainPhases = [];
+    this.nextMovingTrainPhaseAt = null;
+    this.player = { lane: 1, x: LANES[1], y: 0, z: 0, vy: 0, grounded: true, duckTimer: 0, trainRoofLane: null };
+    this.cameraFollowY = 0;
+    this.camera.position.y = CAMERA_BASE_HEIGHT;
     this.state = 'ready';
     this.spawnAhead();
     this.syncMeshes();
@@ -258,23 +299,37 @@ export class Game {
   handleMove(move) {
     if (this.state !== 'running') return false;
     const p = this.player;
-    const grounded = p.y <= 0 && p.vy <= 0;
     switch (move) {
       case MOVES.LEFT:
         if (p.lane === 0) return false;
+        this.prepareTrainRoofTransfer(p.lane - 1);
+        const leftTrain = p.grounded && p.y <= 0.05 ? this.trainBlockingLaneChange(p.lane - 1) : null;
+        if (leftTrain) {
+          this.endRun(leftTrain);
+          return false;
+        }
+
         p.lane -= 1;
         return true;
       case MOVES.RIGHT:
         if (p.lane === LANES.length - 1) return false;
+        this.prepareTrainRoofTransfer(p.lane + 1);
+        const rightTrain = p.grounded && p.y <= 0.05 ? this.trainBlockingLaneChange(p.lane + 1) : null;
+        if (rightTrain) {
+          this.endRun(rightTrain);
+          return false;
+        }
         p.lane += 1;
         return true;
       case MOVES.JUMP:
-        if (!grounded) return false;
+        if (!p.grounded) return false;
         p.vy = JUMP_VELOCITY;
+        p.grounded = false;
+        p.trainRoofLane = null;
         p.duckTimer = 0;
         return true;
       case MOVES.DUCK:
-        if (!grounded) p.vy = -JUMP_VELOCITY;
+        if (!p.grounded) p.vy = -JUMP_VELOCITY;
         p.duckTimer = DUCK_DURATION;
         return true;
       default:
@@ -282,15 +337,77 @@ export class Game {
     }
   }
 
+  prepareTrainRoofTransfer(targetLane) {
+    const p = this.player;
+    if (!p.grounded || p.y <= 0.05 || this.groundHeightAt(this.distance, p.x, p.y) <= 0) {
+      p.trainRoofLane = null;
+      return;
+    }
+    const targetTrain = this.obstacles.some((train) =>
+      train.type === OBSTACLE.TRAIN &&
+      train.lane === targetLane &&
+      rangesOverlap(
+        this.distance - PLAYER_HALF_DEPTH,
+        this.distance + PLAYER_HALF_DEPTH,
+        train.at,
+        train.at + train.spec.depth,
+      ),
+    );
+    p.trainRoofLane = targetTrain ? targetLane : null;
+  }
+
   spawnAhead() {
+    if (this.nextMovingTrainPhaseAt === null && scoreFor(this.distance, this.coins) >= FIRST_MOVING_TRAIN_SCORE) {
+      this.nextMovingTrainPhaseAt = this.distance;
+    }
+
+    while (this.nextMovingTrainPhaseAt !== null &&
+      this.nextMovingTrainPhaseAt < this.distance + SPAWN_AHEAD + 50) {
+      const phase = generateMovingTrainPhase(this.phaseRng, this.nextMovingTrainPhaseAt);
+      this.movingTrainPhases.push(phase);
+      this.removeStaticObstaclesForPhase(phase);
+      this.nextMovingTrainPhaseAt = nextMovingTrainPhaseStart(this.phaseRng, phase.start);
+    }
+
+    for (const phase of this.movingTrainPhases) {
+      for (const convoy of phase.convoys) {
+        const firstTrainAt = convoy.at + MOVING_TRAIN_SPAWN_AHEAD;
+        if (convoy.spawned || firstTrainAt >= this.distance + SPAWN_AHEAD) continue;
+        convoy.spawned = true;
+        for (const { lane, depth, frontRamp, speed, offset } of convoy.trains) {
+          const spec = { ...OBSTACLE_SPECS[OBSTACLE.TRAIN], depth, frontRamp };
+          const mesh = this.createObstacleMesh(OBSTACLE.TRAIN, spec);
+          mesh.position.x = LANES[lane];
+          this.scene.add(mesh);
+          this.obstacles.push({
+            type: OBSTACLE.TRAIN,
+            lane,
+            at: firstTrainAt + offset,
+            activeAt: convoy.at,
+            movingSpeed: speed,
+            moving: true,
+            spec,
+            mesh,
+          });
+        }
+      }
+    }
+
     while (this.nextRowAt < this.distance + SPAWN_AHEAD) {
       const difficulty = difficultyAt(this.nextRowAt);
       const row = generateRow(this.rng, difficulty);
-      for (const { lane, type } of row.obstacles) {
-        const mesh = this.createObstacleMesh(type);
+      for (const { lane, type, spec: generatedSpec } of row.obstacles) {
+        let spec = generatedSpec ?? OBSTACLE_SPECS[type];
+        if (type === OBSTACLE.TRAIN) {
+          spec = { ...spec, frontRamp: trainHasFrontRamp(this.rng) };
+        }
+        if (this.movingTrainPhases.some((phase) =>
+          movingTrainPhaseBlocksObstacle(phase, this.nextRowAt, lane, spec.depth),
+        )) continue;
+        const mesh = this.createObstacleMesh(type, spec);
         mesh.position.x = LANES[lane];
         this.scene.add(mesh);
-        this.obstacles.push({ type, lane, at: this.nextRowAt, spec: OBSTACLE_SPECS[type], mesh });
+        this.obstacles.push({ type, lane, at: this.nextRowAt, spec, mesh });
       }
       for (const { lane, height, count } of row.coins) {
         for (let i = 0; i < count; i++) {
@@ -301,12 +418,73 @@ export class Game {
           this.coinsInWorld.push({ lane, at: this.nextRowAt + offset, height, mesh });
         }
       }
-      this.nextRowAt += nextRowGap(this.rng, difficulty);
+      const trainDepth = row.obstacles.find((obstacle) => obstacle.type === OBSTACLE.TRAIN)?.spec.depth ?? 0;
+      this.nextRowAt += nextRowGap(this.rng, difficulty, trainDepth);
     }
+  }
+
+  removeStaticObstaclesForPhase(phase) {
+    this.obstacles = this.obstacles.filter((obstacle) => {
+      if (
+        obstacle.moving ||
+        !movingTrainPhaseBlocksObstacle(phase, obstacle.at, obstacle.lane, obstacle.spec.depth)
+      ) return true;
+      this.scene.remove(obstacle.mesh);
+      return false;
+    });
   }
 
   playerHeight() {
     return this.player.duckTimer > 0 ? DUCK_HEIGHT : STAND_HEIGHT;
+  }
+
+  trainBlockingLaneChange(targetLane) {
+    const p = this.player;
+    return this.obstacles.find((train) =>
+      train.type === OBSTACLE.TRAIN &&
+      trainBlocksLaneChange(this.distance, p.lane, targetLane, train, PLAYER_HALF_DEPTH),
+    ) ?? null;
+  }
+
+  endRun(train = null) {
+    if (this.state === 'over' || this.state === 'dying') return;
+    const p = this.player;
+    const side = train ? Math.sign(LANES[train.lane] - p.x) : 0;
+    this.deathAnimation = {
+      impact: train?.moving ? 'moving-train' : 'normal',
+      elapsed: 0,
+      startX: p.x,
+      targetX: train?.moving ? p.x : train ? LANES[train.lane] + side * (train.spec.width / 2 + 0.08) : p.x,
+      fallDirection: side || 1,
+      startY: p.y,
+      verticalVelocity: train?.moving ? 8 : 0,
+      score: scoreFor(this.distance, this.coins),
+      coins: this.coins,
+      distance: Math.floor(this.distance),
+    };
+    this.state = 'dying';
+  }
+
+  updateDeath(dt) {
+    const death = this.deathAnimation;
+    death.elapsed = Math.min(DEATH_ANIMATION_SECONDS, death.elapsed + dt);
+    const lunge = Math.min(1, death.elapsed / DEATH_LUNGE_SECONDS);
+    const easedLunge = lunge * lunge * (3 - 2 * lunge);
+    this.player.x = death.startX + (death.targetX - death.startX) * easedLunge;
+    if (death.impact === 'moving-train') {
+      this.player.z = 4 * (1 - (1 - lunge) ** 3);
+      death.verticalVelocity -= 14 * dt;
+      this.player.y = Math.max(0, this.player.y + death.verticalVelocity * dt);
+    }
+
+    if (death.elapsed === DEATH_ANIMATION_SECONDS) {
+      this.state = 'over';
+      this.onGameOver?.({
+        score: death.score,
+        coins: death.coins,
+        distance: death.distance,
+      });
+    }
   }
 
   update(dt) {
@@ -319,24 +497,29 @@ export class Game {
     const step = LANE_CHANGE_SPEED * dt;
     p.x = Math.abs(targetX - p.x) <= step ? targetX : p.x + Math.sign(targetX - p.x) * step;
 
-    if (p.y > 0 || p.vy > 0) {
+    for (const train of this.obstacles) {
+      if (train.moving && this.distance >= train.activeAt) train.at -= train.movingSpeed * dt;
+    }
+
+    const groundY = this.groundHeightAt(this.distance, p.x, p.y, p.trainRoofLane);
+    if (p.grounded && groundY < p.y) p.grounded = false;
+    if (p.grounded) {
+      p.y = groundY;
+      p.vy = 0;
+    } else {
       p.vy -= GRAVITY * dt;
       p.y += p.vy * dt;
-      if (p.y <= 0) {
-        p.y = 0;
+      if (p.vy <= 0 && p.y <= groundY) {
+        p.y = groundY;
         p.vy = 0;
+        p.grounded = true;
       }
     }
     p.duckTimer = Math.max(0, p.duckTimer - dt);
 
-    if (this.checkCollision()) {
-      this.state = 'over';
-      this.syncMeshes();
-      this.onGameOver?.({
-        score: scoreFor(this.distance, this.coins),
-        coins: this.coins,
-        distance: Math.floor(this.distance),
-      });
+    const collision = this.checkCollision();
+    if (collision) {
+      this.endRun(collision);
       return;
     }
 
@@ -348,11 +531,50 @@ export class Game {
   checkCollision() {
     const p = this.player;
     const top = p.y + this.playerHeight();
-    return this.obstacles.some(({ at, lane, spec }) =>
-      rangesOverlap(this.distance - PLAYER_HALF_DEPTH, this.distance + PLAYER_HALF_DEPTH, at, at + spec.depth) &&
-      Math.abs(p.x - LANES[lane]) < PLAYER_HALF_WIDTH + spec.width / 2 &&
-      rangesOverlap(p.y, top, spec.bottom, spec.bottom + spec.height),
-    );
+    return this.obstacles.find((obstacle) => {
+      const { type, at, lane, spec, moving } = obstacle;
+      if (type === OBSTACLE.TRAIN) {
+        if (isOnTrainRoof(p.y, spec.height, p.grounded)) return false;
+        if (
+          moving &&
+          p.y >= spec.height - 0.05 &&
+          trainSurfaceHeight(this.distance - at, spec) >= spec.height - 0.05
+        ) return false;
+        if (moving) return (
+          rangesOverlap(this.distance - PLAYER_HALF_DEPTH, this.distance + PLAYER_HALF_DEPTH, at, at + spec.depth) &&
+          Math.abs(p.x - LANES[lane]) < PLAYER_HALF_WIDTH + spec.width / 2 &&
+          rangesOverlap(p.y, top, spec.bottom, spec.bottom + spec.height)
+        ) ? obstacle : false;
+        if (spec.frontRamp !== false) return false;
+        const touchesFront =
+          this.distance + PLAYER_HALF_DEPTH > at &&
+          this.distance - PLAYER_HALF_DEPTH < at + PLAYER_HALF_DEPTH;
+        if (!touchesFront || p.y >= spec.height) return false;
+      }
+      if (
+        !rangesOverlap(this.distance - PLAYER_HALF_DEPTH, this.distance + PLAYER_HALF_DEPTH, at, at + spec.depth) ||
+        Math.abs(p.x - LANES[lane]) >= PLAYER_HALF_WIDTH + spec.width / 2
+      ) return false;
+      return rangesOverlap(p.y, top, spec.bottom, spec.bottom + spec.height) ? obstacle : false;
+    }) ?? null;
+  }
+
+  groundHeightAt(distance, x, playerY = 0, roofTransferLane = null) {
+    return this.obstacles.reduce((height, obstacle) => {
+      if (
+        obstacle.type !== OBSTACLE.TRAIN ||
+        (Math.abs(x - LANES[obstacle.lane]) >= PLAYER_HALF_WIDTH + obstacle.spec.width / 2 &&
+          obstacle.lane !== roofTransferLane)
+      ) return height;
+      if (
+        obstacle.lane === roofTransferLane &&
+        rangesOverlap(distance - PLAYER_HALF_DEPTH, distance + PLAYER_HALF_DEPTH, obstacle.at, obstacle.at + obstacle.spec.depth)
+      ) return Math.max(height, obstacle.spec.height);
+      const surface = trainSurfaceHeight(distance - obstacle.at, obstacle.spec);
+      return obstacle.moving && (playerY < obstacle.spec.height - 0.05 || surface < obstacle.spec.height)
+        ? height
+        : Math.max(height, surface);
+    }, 0);
   }
 
   collectCoins() {
@@ -394,7 +616,7 @@ export class Game {
   }
 
   // World objects are stored by track distance; the player stays at z=0 and the world moves toward the camera.
-  syncMeshes() {
+  syncMeshes(dt = 0) {
     const toZ = (at) => -(at - this.distance);
     for (const { at, spec, mesh } of this.obstacles) mesh.position.z = toZ(at + spec.depth / 2);
     for (const coin of this.coinsInWorld) {
@@ -409,17 +631,40 @@ export class Game {
 
     const p = this.player;
     const ducking = p.duckTimer > 0;
-    this.playerMesh.position.set(p.x, p.y, 0);
+    this.playerMesh.position.set(p.x, p.y, p.z);
     this.playerMesh.scale.y = ducking ? DUCK_HEIGHT / STAND_HEIGHT : 1;
-    this.playerMesh.rotation.x = this.state === 'over' ? -0.5 : 0;
-    const stride = this.state === 'running' && p.y === 0 ? Math.sin(this.elapsed * this.speed * 0.9) * 0.6 : 0;
+    if (this.deathAnimation) {
+      const deathProgress = Math.max(
+        0,
+        Math.min(1, (this.deathAnimation.elapsed - DEATH_LUNGE_SECONDS) / (DEATH_ANIMATION_SECONDS - DEATH_LUNGE_SECONDS)),
+      );
+      if (this.deathAnimation.impact === 'moving-train') {
+        const wiperProgress = this.deathAnimation.elapsed / DEATH_ANIMATION_SECONDS;
+        this.playerMesh.rotation.x = deathProgress * Math.PI / 2;
+        this.playerMesh.rotation.z =
+          Math.sin(wiperProgress * Math.PI * 2) * Math.PI / 2 * this.deathAnimation.fallDirection;
+      } else {
+        this.playerMesh.rotation.x = 0;
+        this.playerMesh.rotation.z = -this.deathAnimation.fallDirection * deathProgress * Math.PI / 2;
+      }
+    } else {
+      this.playerMesh.rotation.x = this.state === 'over' ? -0.5 : 0;
+      this.playerMesh.rotation.z = 0;
+    }
+    const stride = this.state === 'running' && p.grounded ? Math.sin(this.elapsed * this.speed * 0.9) * 0.6 : 0;
     this.playerLegs[0].rotation.x = stride;
     this.playerLegs[1].rotation.x = -stride;
     this.playerShadow.position.x = p.x;
+    this.playerShadow.position.y = this.groundHeightAt(this.distance, p.x) + 0.01;
     this.playerShadow.scale.setScalar(Math.max(0.4, 1 - p.y * 0.25));
 
+    const cameraFollow = 1 - Math.exp(-CAMERA_FOLLOW_SPEED * dt);
+    const onTrain = this.groundHeightAt(this.distance, p.x, p.y) > 0;
+    const cameraTargetY = !p.grounded || onTrain ? p.y : 0;
+    this.cameraFollowY += (cameraTargetY - this.cameraFollowY) * cameraFollow;
     this.camera.position.x += (p.x * 0.5 - this.camera.position.x) * 0.1;
-    this.camera.lookAt(p.x * 0.3, 1.2, -10);
+    this.camera.position.y = CAMERA_BASE_HEIGHT + this.cameraFollowY;
+    this.camera.lookAt(p.x * 0.3, CAMERA_LOOK_AT_HEIGHT + this.cameraFollowY, -10);
   }
 
   tick(time) {
@@ -427,7 +672,8 @@ export class Game {
     this.lastTime = time;
     this.elapsed += dt;
     if (this.state === 'running') this.update(dt);
-    if (this.player) this.syncMeshes();
+    if (this.state === 'dying') this.updateDeath(dt);
+    if (this.player) this.syncMeshes(dt);
     this.renderer.render(this.scene, this.camera);
   }
 }

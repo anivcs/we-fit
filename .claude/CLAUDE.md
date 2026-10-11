@@ -36,10 +36,15 @@ commands below.
   in `bridge/src/wefit_bridge/gestures.py`, a port of the sketch.
 - Why: thresholds are tuned in a TOML file instead of by reflashing, and motion can
   be replayed in tests.
+- **All tuning is in `tuning.toml` at the repo root**, read on every start (no flag):
+  `[orientation]` (which sensor axis is right/up) and one profile per transport,
+  `[usb]` and `[ble]`, each with a `threshold`/`rest_ms`/`cooldown_ms` row per
+  direction. `tuning.py` loads it into `GestureConfig`; `fake` ignores the file.
+  `bridge/config.toml` no longer has a `[gestures]` table.
 - No IMU maths library is needed in Python. The BNO055 does sensor fusion on-chip.
 - **The teammates keep tuning `firstiterationsubwaysurfers/*.ino` on hardware**
   (author "Spiritqurse"). When that file changes, re-port its constants and logic
-  into `gestures.py`, `config.example.toml`, the tests and the README table.
+  into `gestures.py`, `tuning.toml`, the tests and the README.
 
 ## Current state (as of 2026-10-10)
 

@@ -9,6 +9,7 @@ from .pipeline import build_pipeline, run
 from .sinks import SINKS
 from .sinks.websocket import WebSocketPortError
 from .transport import make_transport
+from .tuning import TuningError
 
 
 def scan() -> None:
@@ -80,7 +81,12 @@ def main() -> None:
         config.websocket_port = args.ws_port
 
     try:
-        asyncio.run(run(make_transport(config), build_pipeline(config)))
+        pipeline = build_pipeline(config)
+    except TuningError as e:
+        parser.exit(1, f"{e}\n")
+
+    try:
+        asyncio.run(run(make_transport(config), pipeline))
     except KeyboardInterrupt:
         pass
     except WebSocketPortError as e:

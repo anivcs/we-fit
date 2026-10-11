@@ -10,6 +10,7 @@ from .gestures import GestureDetector
 from .keys import KeyState
 from .protocol import Sample
 from .sinks import Sink, make_sink
+from .tuning import load_tuning
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def build_pipeline(config: Config, sinks: Iterable[Sink] | None = None) -> Pipel
     if sinks is None:
         sinks = [make_sink(name, config) for name in config.sinks]
     return Pipeline(
-        GestureDetector(config.gestures),
+        GestureDetector(config.gestures or load_tuning(config.transport)),
         KeyState(config.key_hold_ms / 1000),
         sinks,
     )

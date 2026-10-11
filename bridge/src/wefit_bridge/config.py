@@ -1,4 +1,7 @@
-"""Bridge configuration, loaded from TOML (see config.example.toml)."""
+"""Bridge configuration, loaded from TOML (see bridge/config.toml).
+
+Gesture thresholds and delays are not here; they live in tuning.toml at the repo root.
+"""
 
 import tomllib
 from dataclasses import dataclass, field
@@ -20,7 +23,8 @@ class Config:
     sinks: list[str] = field(default_factory=lambda: ["console"])
     websocket_host: str = "127.0.0.1"
     websocket_port: int = 8765
-    gestures: GestureConfig = field(default_factory=GestureConfig)
+    # None: read tuning.toml for the transport in use (see tuning.py)
+    gestures: GestureConfig | None = None
 
 
 def load_config(path: str | Path) -> Config:
@@ -41,15 +45,4 @@ def load_config(path: str | Path) -> Config:
     ble = raw.get("ble", {})
     config.device_name = ble.get("name", config.device_name)
     config.device_address = ble.get("address", config.device_address)
-
-    g = raw.get("gestures", {})
-    d = config.gestures
-    config.gestures = GestureConfig(
-        side_threshold=float(g.get("side_threshold", d.side_threshold)),
-        up_threshold=float(g.get("up_threshold", d.up_threshold)),
-        down_threshold=float(g.get("down_threshold", d.down_threshold)),
-        rest_threshold=float(g.get("rest_threshold", d.rest_threshold)),
-        rest_s=float(g.get("rest_ms", d.rest_s * 1000)) / 1000,
-        cooldown_s=float(g.get("cooldown_ms", d.cooldown_s * 1000)) / 1000,
-    )
     return config

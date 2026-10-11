@@ -10,10 +10,83 @@ export const OBSTACLE = Object.freeze({
 export const OBSTACLE_SPECS = {
   [OBSTACLE.LOW]: { width: 2.0, height: 0.9, depth: 0.6, bottom: 0 },
   [OBSTACLE.HIGH]: { width: 2.0, height: 1.3, depth: 0.6, bottom: 1.2 },
-  [OBSTACLE.TRAIN]: { width: 2.1, height: 3.2, depth: 12, bottom: 0 },
+  [OBSTACLE.TRAIN]: { width: 2.1, height: 3.2, depth: 12, bottom: 0, rampLength: 4.2 },
 };
 
 const DIFFICULTY_RAMP_METERS = 2500;
+const MIN_TRAIN_DEPTH = 10;
+const MAX_TRAIN_DEPTH = 60;
+const RAMPLESS_TRAIN_CHANCE = 0.4;
+const MOVING_TRAIN_PHASE_MIN_LENGTH = 200;
+const MOVING_TRAIN_PHASE_MAX_LENGTH = 300;
+const MOVING_TRAIN_THREE_LANE_CHANCE = 0.03;
+const MOVING_TRAIN_TWO_LANE_CHANCE = 0.45;
+const MOVING_TRAIN_SPEED_MIN = 8;
+const MOVING_TRAIN_SPEED_MAX = 42;
+export const FIRST_MOVING_TRAIN_SCORE = 20000;
+export const MOVING_TRAIN_SPAWN_AHEAD = 60;
+
+export function nextMovingTrainPhaseStart(rng, phaseStart) {
+  return phaseStart + 400 + rng() * 100;
+}
+
+export function trainHasFrontRamp(rng) {
+  return rng() >= RAMPLESS_TRAIN_CHANCE;
+}
+
+export function generateMovingTrainPhase(rng, start) {
+  const duration = MOVING_TRAIN_PHASE_MIN_LENGTH +
+    rng() * (MOVING_TRAIN_PHASE_MAX_LENGTH - MOVING_TRAIN_PHASE_MIN_LENGTH);
+  const countRoll = rng();
+  const trainCount = countRoll < MOVING_TRAIN_THREE_LANE_CHANCE
+    ? 3
+    : countRoll < MOVING_TRAIN_THREE_LANE_CHANCE + MOVING_TRAIN_TWO_LANE_CHANCE ? 2 : 1;
+  const lanes = shuffledLanes(rng).slice(0, trainCount);
+  const end = start + duration;
+  const convoys = [];
+
+  for (let at = start + 10; at + MOVING_TRAIN_SPAWN_AHEAD < end; at += 90 + rng() * 10) {
+    const trains = lanes.map((lane, index) => ({
+      lane,
+      depth: 10 + rng() * 22,
+      frontRamp: false,
+      speed: MOVING_TRAIN_SPEED_MIN + rng() * (MOVING_TRAIN_SPEED_MAX - MOVING_TRAIN_SPEED_MIN),
+      offset: index * 80,
+    }));
+    convoys.push({ at, trains });
+  }
+
+  return { start, end, lanes, convoys };
+}
+
+export function movingTrainPhaseBlocksObstacle(phase, at, lane, depth = 0) {
+  return phase.lanes.includes(lane) &&
+    rangesOverlap(at, at + depth, phase.start - 50, phase.end + 50);
+}
+
+export function trainBlocksLaneChange(distance, fromLane, toLane, train, playerHalfDepth) {
+  return (
+    toLane === train.lane &&
+    fromLane !== train.lane &&
+    rangesOverlap(distance - playerHalfDepth, distance + playerHalfDepth, train.at, train.at + train.spec.depth)
+  );
+}
+
+export function isOnTrainRoof(playerY, trainHeight, grounded) {
+  return grounded && playerY >= trainHeight - 0.05;
+}
+
+function rangesOverlap(aMin, aMax, bMin, bMax) {
+  return aMin < bMax && bMin < aMax;
+}
+
+export function trainSurfaceHeight(distanceFromStart, spec = OBSTACLE_SPECS[OBSTACLE.TRAIN]) {
+  if (distanceFromStart < 0 || distanceFromStart >= spec.depth) return 0;
+  if (distanceFromStart < spec.rampLength) {
+    return spec.frontRamp === false ? 0 : (spec.height * distanceFromStart) / spec.rampLength;
+  }
+  return spec.height;
+}
 
 export function difficultyAt(distance) {
   return Math.min(1, distance / DIFFICULTY_RAMP_METERS);
@@ -46,7 +119,10 @@ export function generateRow(rng, difficulty) {
     } else {
       type = rng() < 0.55 ? OBSTACLE.LOW : OBSTACLE.HIGH;
     }
-    obstacles.push({ lane, type });
+    const spec = type === OBSTACLE.TRAIN
+      ? { ...OBSTACLE_SPECS[type], depth: MIN_TRAIN_DEPTH + rng() * (MAX_TRAIN_DEPTH - MIN_TRAIN_DEPTH) }
+      : OBSTACLE_SPECS[type];
+    obstacles.push({ lane, type, ...(type === OBSTACLE.TRAIN ? { spec } : {}) });
   }
 
   const coins = [];
@@ -61,6 +137,7 @@ export function generateRow(rng, difficulty) {
   return { obstacles, coins };
 }
 
-export function nextRowGap(rng, difficulty) {
-  return 30 - 8 * difficulty + rng() * 8;
+export function nextRowGap(rng, difficulty, trainDepth = 0) {
+  const regularGap = 30 - 8 * difficulty + rng() * 8;
+  return trainDepth > 0 ? Math.max(regularGap, trainDepth + 8 + rng() * 8) : regularGap;
 }
