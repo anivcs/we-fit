@@ -10,10 +10,41 @@ export const OBSTACLE = Object.freeze({
 export const OBSTACLE_SPECS = {
   [OBSTACLE.LOW]: { width: 2.0, height: 0.9, depth: 0.6, bottom: 0 },
   [OBSTACLE.HIGH]: { width: 2.0, height: 1.3, depth: 0.6, bottom: 1.2 },
-  [OBSTACLE.TRAIN]: { width: 2.1, height: 3.2, depth: 12, bottom: 0 },
+  [OBSTACLE.TRAIN]: { width: 2.1, height: 3.2, depth: 12, bottom: 0, rampLength: 4.2 },
 };
 
 const DIFFICULTY_RAMP_METERS = 2500;
+const MIN_TRAIN_DEPTH = 10;
+const MAX_TRAIN_DEPTH = 60;
+const DIRECT_TRAIN_GAP = 12;
+const RAMPLESS_TRAIN_CHANCE = 0.4;
+
+export function trainHasFrontRamp(rng, gapFromPreviousTrain) {
+  return gapFromPreviousTrain > DIRECT_TRAIN_GAP || rng() >= RAMPLESS_TRAIN_CHANCE;
+}
+
+export function trainBlocksLaneChange(distance, fromLane, toLane, train, playerHalfDepth) {
+  return (
+    toLane === train.lane &&
+    fromLane !== train.lane &&
+    rangesOverlap(distance - playerHalfDepth, distance + playerHalfDepth, train.at, train.at + train.spec.depth)
+  );
+}
+
+function rangesOverlap(aMin, aMax, bMin, bMax) {
+  return aMin < bMax && bMin < aMax;
+}
+
+export function trainSurfaceHeight(distanceFromStart, spec = OBSTACLE_SPECS[OBSTACLE.TRAIN]) {
+  if (distanceFromStart < 0 || distanceFromStart > spec.depth) return 0;
+  if (distanceFromStart < spec.rampLength) {
+    return spec.frontRamp === false ? 0 : (spec.height * distanceFromStart) / spec.rampLength;
+  }
+  if (distanceFromStart > spec.depth - spec.rampLength) {
+    return (spec.height * (spec.depth - distanceFromStart)) / spec.rampLength;
+  }
+  return spec.height;
+}
 
 export function difficultyAt(distance) {
   return Math.min(1, distance / DIFFICULTY_RAMP_METERS);
@@ -46,7 +77,10 @@ export function generateRow(rng, difficulty) {
     } else {
       type = rng() < 0.55 ? OBSTACLE.LOW : OBSTACLE.HIGH;
     }
-    obstacles.push({ lane, type });
+    const spec = type === OBSTACLE.TRAIN
+      ? { ...OBSTACLE_SPECS[type], depth: MIN_TRAIN_DEPTH + rng() * (MAX_TRAIN_DEPTH - MIN_TRAIN_DEPTH) }
+      : OBSTACLE_SPECS[type];
+    obstacles.push({ lane, type, ...(type === OBSTACLE.TRAIN ? { spec } : {}) });
   }
 
   const coins = [];
@@ -61,6 +95,7 @@ export function generateRow(rng, difficulty) {
   return { obstacles, coins };
 }
 
-export function nextRowGap(rng, difficulty) {
-  return 30 - 8 * difficulty + rng() * 8;
+export function nextRowGap(rng, difficulty, trainDepth = 0) {
+  const regularGap = 30 - 8 * difficulty + rng() * 8;
+  return trainDepth > 0 ? Math.max(regularGap, trainDepth + 8 + rng() * 8) : regularGap;
 }

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { createRng } from '../src/rng.js';
-import { OBSTACLE, OBSTACLE_SPECS, generateRow, nextRowGap } from '../src/track.js';
+import {
+  OBSTACLE,
+  OBSTACLE_SPECS,
+  generateRow,
+  nextRowGap,
+  trainBlocksLaneChange,
+  trainHasFrontRamp,
+  trainSurfaceHeight,
+} from '../src/track.js';
 
 describe('rng', () => {
   it('is deterministic for a seed', () => {
@@ -40,10 +48,57 @@ describe('track generation', () => {
     }
   });
 
+  it('generates trains at varied lengths that fit both ramps', () => {
+    const rng = createRng(817);
+    const depths = [];
+    for (let i = 0; i < 2000; i++) {
+      for (const obstacle of generateRow(rng, 1).obstacles) {
+        if (obstacle.type !== OBSTACLE.TRAIN) continue;
+        expect(obstacle.spec.depth).toBeGreaterThanOrEqual(10);
+        expect(obstacle.spec.depth).toBeLessThanOrEqual(60);
+        expect(obstacle.spec.depth).toBeGreaterThan(obstacle.spec.rampLength * 2);
+        depths.push(obstacle.spec.depth);
+      }
+    }
+    expect(new Set(depths).size).toBeGreaterThan(1);
+  });
+
+  it('randomly omits front ramps only for trains close to a previous train', () => {
+    expect(trainHasFrontRamp(() => 0, 12)).toBe(false);
+    expect(trainHasFrontRamp(() => 0.4, 12)).toBe(true);
+    expect(trainHasFrontRamp(() => 0, 12.01)).toBe(true);
+  });
+
+  it('blocks a ground-level lane change into a train beside the player', () => {
+    const train = { lane: 0, at: 20, spec: { depth: 30 } };
+    expect(trainBlocksLaneChange(25, 1, 0, train, 0.35)).toBe(true);
+    expect(trainBlocksLaneChange(19.5, 1, 0, train, 0.35)).toBe(false);
+    expect(trainBlocksLaneChange(25, 0, 0, train, 0.35)).toBe(false);
+    expect(trainBlocksLaneChange(25, 1, 2, train, 0.35)).toBe(false);
+  });
+
   it('leaves room after a train before the next row', () => {
     const rng = createRng(99);
     for (let i = 0; i < 2000; i++) {
-      expect(nextRowGap(rng, 1)).toBeGreaterThan(OBSTACLE_SPECS[OBSTACLE.TRAIN].depth + 8);
+      const trainDepth = 10 + rng() * 50;
+      expect(nextRowGap(rng, 1, trainDepth)).toBeGreaterThan(trainDepth + 8);
     }
+  });
+
+  it('provides ground ramps and a roof across each train', () => {
+    const { depth, height, rampLength } = OBSTACLE_SPECS[OBSTACLE.TRAIN];
+    expect(trainSurfaceHeight(-0.1)).toBe(0);
+    expect(trainSurfaceHeight(0)).toBe(0);
+    expect(trainSurfaceHeight(rampLength / 2)).toBeCloseTo(height / 2);
+    expect(trainSurfaceHeight(rampLength)).toBe(height);
+    expect(trainSurfaceHeight(depth / 2)).toBe(height);
+    expect(trainSurfaceHeight(depth - rampLength / 2)).toBeCloseTo(height / 2);
+    expect(trainSurfaceHeight(depth)).toBe(0);
+    expect(trainSurfaceHeight(depth + 0.1)).toBe(0);
+    const longerTrain = { ...OBSTACLE_SPECS[OBSTACLE.TRAIN], depth: 14 };
+    expect(trainSurfaceHeight(7, longerTrain)).toBe(longerTrain.height);
+    const noFrontRamp = { ...OBSTACLE_SPECS[OBSTACLE.TRAIN], frontRamp: false };
+    expect(trainSurfaceHeight(noFrontRamp.rampLength / 2, noFrontRamp)).toBe(0);
+    expect(trainSurfaceHeight(noFrontRamp.rampLength, noFrontRamp)).toBe(noFrontRamp.height);
   });
 });

@@ -8,6 +8,7 @@ src/wefit_bridge/gestures.py
 src/wefit_bridge/keys.py
 src/wefit_bridge/pipeline.py
 src/wefit_bridge/protocol.py
+src/wefit_bridge/tuning.py
 src/wefit_bridge.egg-info/PKG-INFO
 src/wefit_bridge.egg-info/SOURCES.txt
 src/wefit_bridge.egg-info/dependency_links.txt
@@ -27,4 +28,5 @@ tests/test_keys.py
 tests/test_pipeline.py
 tests/test_protocol.py
 tests/test_setup.py
+tests/test_tuning.py
 tests/test_websocket.py
